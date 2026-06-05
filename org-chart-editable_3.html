@@ -116,6 +116,36 @@ const SEMI_TITLES = {
   "Systems Engineering": ["Systems Engineer", "Sr. Systems Engineer", "Systems Architect", "Algorithm Engineer"],
 };
 
+// Granular job family ("Discipline") — refines the broad discipline taxonomy using the
+// person's title, so Verification splits into Design Verification / Emulation / Formal, etc.
+function jobFamily(title, taxo) {
+  const t = (title || "").toLowerCase();
+  const has = (...ks) => ks.some(k => t.includes(k));
+  if (has("chief of staff", "executive assistant", "assistant")) return "Executive Admin";
+  switch (taxo) {
+    case "Verification":
+      if (has("emulation", "fpga", "prototyp")) return "Emulation & Prototyping";
+      if (has("formal"))                        return "Formal Verification";
+      return "Design Verification";
+    case "IC Design":
+      if (has("analog", "mixed-signal", "serdes", "pll", "clock")) return "Analog & Mixed-Signal";
+      if (has("rtl", "logic"))                                     return "RTL & Logic Design";
+      return "IC Design";
+    case "Test Engineering":
+      if (has("dft", "scan", "atpg"))             return "DFT";
+      if (has("characteriz"))                     return "Characterization";
+      return "Test Engineering";
+    case "Software":             return "Firmware & Software";
+    case "Systems Engineering":  return "Systems Architecture";
+    case "Product Engineering":  return "Silicon Validation";
+    case "Process Engineering":  return "Process & Yield";
+    case "HR":                   return "HR & People";
+    case "Legal":                return "Legal & IP";
+    case "IT":                   return "IT & Security";
+    default: return taxo || "General";
+  }
+}
+
 const FIRST_NAMES = ["James","Mary","Robert","Patricia","John","Jennifer","Michael","Linda","David","Elizabeth","William","Barbara","Richard","Susan","Joseph","Jessica","Thomas","Sarah","Christopher","Karen","Charles","Lisa","Daniel","Nancy","Matthew","Betty","Anthony","Margaret","Mark","Sandra","Steven","Ashley","Andrew","Dorothy","Paul","Kimberly","Joshua","Emily","Kenneth","Donna","Kevin","Michelle","Brian","Carol","George","Amanda","Timothy","Melissa","Ronald","Deborah","Jason","Stephanie","Wei","Li","Chen","Yan","Min","Hui","Raj","Priya","Amit","Neha","Sanjay","Deepa","Lars","Anna","Hans","Katja","Yuki","Sakura","Jin","Mei","Arjun","Ananya","Ravi","Sunita","Marco","Sofia","Pierre","Marie","Otto","Ingrid","Kenji","Hana","Arun","Kavita","Felix","Elena","Liam","Olivia","Noah","Emma","Ethan","Ava","Lucas","Mia","Alex","Zara","Sam","Luna"];
 const LAST_NAMES = ["Smith","Johnson","Williams","Brown","Jones","Garcia","Miller","Davis","Rodriguez","Martinez","Anderson","Taylor","Thomas","Jackson","White","Harris","Martin","Thompson","Moore","Young","Allen","King","Wright","Lopez","Hill","Scott","Green","Adams","Baker","Lee","Kim","Park","Chen","Wang","Li","Zhang","Liu","Wu","Yang","Huang","Singh","Patel","Kumar","Sharma","Gupta","Joshi","Verma","Rao","Müller","Schmidt","Schneider","Fischer","Tanaka","Suzuki","Sato","Nakamura","Fernandez","Costa","Silva","Rossi","Bianchi","Johansson","Larsson","Eriksson","Nielsen","Hansen","Andersen","Petrov","Ivanov","Chang","Lin","Hsu","Tsai","Cheng"];
 
@@ -762,17 +792,20 @@ function generateSemiCompany() {
       const vp  = ancestorAtLevel(e, "VP");
       e.taxo = e.taxo || e.dept;          // preserve discipline taxonomy
       e.productBU = e.productBU || e.bg;  // preserve legacy product-BU tag
+      e.bucket = e.bucket || e.fn;        // preserve broad function bucket (Eng/R&D/G&A/...)
       e.bg = svp ? cleanOrg(svp.title) : "Executive Office";
       e.dept = e.level === "C-Suite" ? "Executive Office"
              : vp  ? cleanOrg(vp.title)
              : svp ? cleanOrg(svp.title)
              : "Executive Office";
+      e.fn = jobFamily(e.title, e.taxo);  // Discipline = granular job family
     });
     // Stable colors for the derived Business Unit & Department values
     const PALETTE = [...EXTRA_COLORS, ...RECRUITER_COLORS, "#2563eb", "#7c3aed", "#059669", "#d97706", "#dc2626", "#0891b2", "#e11d48", "#10b981"];
     const hashColor = s => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return PALETTE[h % PALETTE.length]; };
     [...new Set(employees.map(e => e.bg))].forEach(v => { if (v && !BG_COLORS[v]) BG_COLORS[v] = hashColor(v); });
     [...new Set(employees.map(e => e.dept))].forEach(v => { if (v && !DEPT_COLORS[v]) DEPT_COLORS[v] = hashColor(v); });
+    [...new Set(employees.map(e => e.fn))].forEach(v => { if (v && !FN_COLORS[v]) FN_COLORS[v] = hashColor(v); });
   }
 
   return employees;
@@ -4095,7 +4128,7 @@ function DashboardView() {
     const eng  = activeEmployees.filter(e => TECH_DEPTS.has(e.taxo)).length;
     const des  = activeEmployees.filter(e => e.taxo === "IC Design").length;
     const dv   = activeEmployees.filter(e => e.taxo === "Verification").length;
-    const ga   = activeEmployees.filter(e => e.fn === "G&A").length;
+    const ga   = activeEmployees.filter(e => e.bucket === "G&A").length;
     const tot  = activeEmployees.length || 1;
     return {
       engCount: eng, engRatio: ((eng / tot) * 100).toFixed(0),
@@ -4538,7 +4571,7 @@ function ScenarioView() {
   // Dept → primary function (first employee's fn for that dept)
   const deptFnMap = useMemo(() => {
     const m = {};
-    activeEmps.forEach(e => { if (!m[e.dept]) m[e.dept] = e.fn; });
+    activeEmps.forEach(e => { if (!m[e.dept]) m[e.dept] = e.bucket; });
     return m;
   }, [activeEmps]);
 
@@ -5010,7 +5043,7 @@ function ScenarioView() {
                         { label: "Depts",     field: "depts",       opts: depts,                 colorMap: DEPT_COLORS },
                         { label: "Locations", field: "locations",   opts: LOCATIONS,              colorMap: LOC_COLORS  },
                         { label: "Levels",    field: "levelGroups", opts: RECRUITER_LEVEL_GROUPS, colorMap: null        },
-                        { label: "Disciplines", field: "fns",       opts: RECRUITER_FNS,          colorMap: FN_COLORS   },
+                        { label: "Function Group", field: "fns",    opts: RECRUITER_FNS,          colorMap: FN_COLORS   },
                       ].map(({ label, field, opts, colorMap }) => (
                         <div key={field} className="flex items-start gap-2 mb-1.5">
                           <span className="text-xs text-gray-400 w-16 shrink-0 pt-0.5">{label}</span>
@@ -9294,45 +9327,6 @@ function OrgChartApp() {
             100% { opacity: 0; transform: scale(0.85) translateY(-20px); }
           }
 
-          /* ── Print mode ───────────────────────────────────────────────
-             Strips chrome (sidebar, topbar, filters, tutorial dots, modals,
-             timeline scrubber, animations) so the active view prints cleanly.
-             Adds a header/footer with org/scenario/date for context. */
-          .print-only { display: none; }
-          @page { size: letter portrait; margin: 0.5in; }
-          @media print {
-            html, body { background: white !important; height: auto !important; overflow: visible !important; }
-            .no-print { display: none !important; }
-            .print-only { display: block !important; }
-            .h-screen, .h-full, .overflow-hidden, .overflow-y-auto, .overflow-x-auto {
-              height: auto !important; overflow: visible !important; max-height: none !important;
-            }
-            .flex-1 { flex: none !important; }
-            /* Background art and animations off — saves ink, prevents jitter */
-            * { animation: none !important; transition: none !important; box-shadow: none !important; }
-            /* Force light backgrounds on dark-mode chrome */
-            .bg-slate-900, .bg-slate-800 { background: white !important; color: black !important; }
-            .text-slate-300, .text-slate-400, .text-slate-500, .text-white { color: #111 !important; }
-            /* Page-break hints */
-            h1, h2, h3 { break-after: avoid; }
-            table, .org-tree, .card { break-inside: avoid; }
-            /* Tighter typography for paper */
-            body, p, span, div { font-size: 11pt; line-height: 1.4; }
-            h1 { font-size: 18pt; }
-            h2 { font-size: 14pt; }
-            h3 { font-size: 12pt; }
-          }
-          .print-cover {
-            padding: 24px 0 12px; border-bottom: 2px solid #111;
-            margin-bottom: 16px;
-          }
-          .print-cover h1 { font-size: 22pt; margin: 0 0 4px; font-weight: 700; }
-          .print-cover .meta { font-size: 10pt; color: #555; }
-          .print-footer {
-            position: fixed; bottom: 0; left: 0; right: 0;
-            padding: 6px 24px; font-size: 8pt; color: #888;
-            border-top: 1px solid #ddd; display: flex; justify-content: space-between;
-          }
         `}</style>
 
         {/* Sidebar */}
@@ -9448,17 +9442,6 @@ function OrgChartApp() {
 
         {/* Main area */}
         <div className="flex-1 flex flex-col min-w-0">
-          {/* Print-only cover header (visible only via window.print()) */}
-          <div className="print-only print-cover">
-            <h1>SemiCorp · {VIEW_LABEL[view] || view}</h1>
-            <div className="meta">
-              Scenario: <b>{scenarioName || "Base"}</b> · {activeEmployees.length} active employees · {departments.length} departments · {locations.length} locations · printed {new Date().toLocaleString()}
-            </div>
-          </div>
-          <div className="print-only print-footer">
-            <span>SemiCorp Org Navigator</span>
-            <span>{new Date().toLocaleDateString()} · {scenarioName || "Base"} scenario</span>
-          </div>
           {/* Top bar */}
           <div className="bg-white border-b border-gray-100 px-4 py-2 flex items-center gap-3 shrink-0 flex-wrap no-print" style={{ boxShadow: "0 1px 2px rgba(0,0,0,0.03)" }}>
             {/* Search */}
@@ -9590,12 +9573,6 @@ function OrgChartApp() {
                 onClick={() => setNlOpen(true)}
                 className="flex items-center gap-1 text-xs bg-violet-50 border border-violet-200 text-violet-700 px-2.5 py-1.5 rounded-lg hover:bg-violet-100 transition-colors">
                 <Sparkles size={12}/>Ask
-              </button>
-              <button
-                title="Print this view (use the browser's Save as PDF for a clean PDF export)"
-                onClick={() => window.print()}
-                className="flex items-center gap-1 text-xs bg-gray-100 text-gray-600 px-2.5 py-1.5 rounded-lg hover:bg-gray-200 transition-colors">
-                <Printer size={12}/>Print / PDF
               </button>
               <button
                 title="Generate a 6-slide exec deck PDF (cover, org shape, pyramid, hotspots, plan, risks)"
