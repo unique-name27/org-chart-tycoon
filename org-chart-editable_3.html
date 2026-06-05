@@ -7061,15 +7061,17 @@ function GalaxyOrgView() {
     scene.add(lines);
 
     // Node bodies — single InstancedMesh
-    const sizeForDepth = d => Math.max(3.4, 16 - d * 1.9);
-    const sphereGeo = new THREE.SphereGeometry(1, 14, 12);
+    // Sphere size scales with how many people report up through this node — the CEO
+    // (most reports) becomes the central "sun"; managers dwarf their individual ICs.
+    const sizeForNode = n => 3.2 + Math.sqrt((n.node && n.node._totalReports) || 0) * 1.5;
+    const sphereGeo = new THREE.SphereGeometry(1, 18, 14);
     const sphereMat = new THREE.MeshBasicMaterial();
     const inst = new THREE.InstancedMesh(sphereGeo, sphereMat, nodes.length);
     const dummy = new THREE.Object3D();
     const col = new THREE.Color();
     nodes.forEach((n, i) => {
       dummy.position.set(n.x, n.y, n.z);
-      const s = sizeForDepth(n.depth);
+      const s = sizeForNode(n);
       dummy.scale.set(s, s, s);
       dummy.updateMatrix();
       inst.setMatrixAt(i, dummy.matrix);
@@ -7080,6 +7082,23 @@ function GalaxyOrgView() {
     if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
     inst.frustumCulled = false; // bounding sphere is the unit geometry at origin; keep all instances visible
     scene.add(inst);
+
+    // Warm "sun" glow halo on the root (CEO / largest) node
+    const root0 = nodes[0];
+    const gCanvas = document.createElement("canvas"); gCanvas.width = gCanvas.height = 128;
+    const gCtx = gCanvas.getContext("2d");
+    const gGrad = gCtx.createRadialGradient(64, 64, 0, 64, 64, 64);
+    gGrad.addColorStop(0, "rgba(255,244,214,0.95)");
+    gGrad.addColorStop(0.25, "rgba(255,214,140,0.55)");
+    gGrad.addColorStop(1, "rgba(255,180,80,0)");
+    gCtx.fillStyle = gGrad; gCtx.fillRect(0, 0, 128, 128);
+    const glowTex = new THREE.CanvasTexture(gCanvas);
+    const glowMat = new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false });
+    const glow = new THREE.Sprite(glowMat);
+    glow.position.set(root0.x, root0.y, root0.z);
+    const gs = sizeForNode(root0) * 7;
+    glow.scale.set(gs, gs, 1);
+    scene.add(glow);
 
     // Labels for senior levels (depth <= 3): canvas-texture sprites
     function makeLabel(text) {
@@ -7108,7 +7127,7 @@ function GalaxyOrgView() {
     nodes.forEach(n => {
       if (n.depth <= 3) {
         const sp = makeLabel(`${n.node.first} ${n.node.last}`);
-        sp.position.set(n.x, n.y + sizeForDepth(n.depth) + 9, n.z);
+        sp.position.set(n.x, n.y + sizeForNode(n) + 9, n.z);
         scene.add(sp);
         labels.push(sp);
       }
@@ -7251,7 +7270,7 @@ function GalaxyOrgView() {
         const n = nodes[id];
         flyTo.fromT.copy(target); flyTo.toT.set(n.x, n.y, n.z);
         flyTo.fromR = orbit.radius;
-        flyTo.toR = THREE.MathUtils.clamp(sizeForDepth(n.depth) * 9 + 70, 70, maxR * 2);
+        flyTo.toR = THREE.MathUtils.clamp(sizeForNode(n) * 6 + 60, 60, maxR * 2);
         flyTo.t = 0; flyTo.dur = 0.9;
         setDetailRef.current(n.node);
       }
@@ -7296,7 +7315,7 @@ function GalaxyOrgView() {
     const fwd = new THREE.Vector3(), right = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), move = new THREE.Vector3();
     const flyEuler = new THREE.Euler(0, 0, 0, "YXZ");
     const CENTER = new THREE.Vector2(0, 0), _tmpV = new THREE.Vector3(), _tmpV2 = new THREE.Vector3();
-    let prevYaw = 0, roll = 0, hyperInt = 0, hudTimer = 0, lodTimer = 0, meteorTimer = 1.0;
+    let prevYaw = 0, roll = 0, hyperInt = 0, hudTimer = 0, lodTimer = 0, meteorTimer = 1.0, autoT = 0;
     const cand = [];
 
     function spawnMeteor() {
@@ -7420,6 +7439,11 @@ function GalaxyOrgView() {
         hudTimer -= dt; if (hudTimer <= 0) { hudTimer = 0.07; updateFlyHUD(moving ? spd : 0, hyperActive); }
         cam = flyCam;
       } else {
+        if (camModeRef.current === "auto") { // slowly circle the constellation
+          autoT += dt;
+          orbit.theta += dt * 0.12;
+          orbit.phi = 1.0 + Math.sin(autoT * 0.25) * 0.16;
+        }
         if (flyTo.t < 1) {
           flyTo.t = Math.min(1, flyTo.t + dt / flyTo.dur);
           const e = flyTo.t < 0.5 ? 2 * flyTo.t * flyTo.t : 1 - Math.pow(-2 * flyTo.t + 2, 2) / 2;
@@ -7464,6 +7488,7 @@ function GalaxyOrgView() {
       starLayers.forEach(s => { s.g.dispose(); s.m.dispose(); });
       warpGeo.dispose(); warpMat.dispose();
       meteors.forEach(o => { o.g.dispose(); o.m.dispose(); });
+      glowTex.dispose(); glowMat.dispose();
       labelDivs.forEach(d => d.remove());
       labels.forEach(sp => { sp.material.map?.dispose(); sp.material.dispose(); });
       renderer.dispose();
@@ -7476,10 +7501,11 @@ function GalaxyOrgView() {
   useEffect(() => { sceneRef.current?.recolor(); }, [colorBy]);
 
   function setCam(m) {
+    const prev = camModeRef.current;
     camModeRef.current = m;
     setCamMode(m);
     if (m === "fly") sceneRef.current?.enterFly();
-    else { sceneRef.current?.exitFly(); if (document.pointerLockElement) document.exitPointerLock?.(); }
+    else if (prev === "fly") { sceneRef.current?.exitFly(); if (document.pointerLockElement) document.exitPointerLock?.(); }
   }
 
   if (!threeReady) {
@@ -7512,7 +7538,7 @@ function GalaxyOrgView() {
         </div>
       </>)}
       <div className="absolute top-3 left-3 z-10 flex gap-1 bg-black/40 rounded-lg p-1" style={{ backdropFilter: "blur(4px)" }}>
-        {[["orbit", "🛰 Orbit"], ["fly", "🚀 Fly"]].map(([m, l]) => (
+        {[["orbit", "🛰 Orbit"], ["fly", "🚀 Fly"], ["auto", "🌀 Auto-orbit"]].map(([m, l]) => (
           <button key={m} onClick={() => setCam(m)}
             className="text-xs px-2.5 py-1 rounded-md transition-colors"
             style={{ background: camMode === m ? "#2563eb" : "transparent", color: camMode === m ? "white" : "#cbd5e1", fontWeight: camMode === m ? 600 : 400 }}>
@@ -7526,6 +7552,8 @@ function GalaxyOrgView() {
       <div className="absolute bottom-3 left-3 z-10 px-3 py-1.5 rounded-md" style={{ fontSize: 11, maxWidth: 380, background: "rgba(0,0,0,0.4)", color: "#cbd5e1", backdropFilter: "blur(4px)" }}>
         {camMode === "fly"
           ? "Fly: mouse to look · W/A/S/D thrust · Space up · Ctrl down · hold Shift = ⚡HYPERDRIVE · click to select target · Esc exits"
+          : camMode === "auto"
+          ? "Auto-orbit: the camera slowly circles the constellation · scroll to zoom · pick Orbit to take control"
           : "Orbit: drag to rotate · scroll to zoom · hover for name · click to fly to a node + open details"}
       </div>
     </div>
