@@ -7750,15 +7750,114 @@ function GalaxyOrgView() {
   );
 }
 
+const SKIN = ["#f1c9a5", "#e0ac80", "#c68642", "#a06a3b", "#ffdbac"];
+// Pick a building archetype from the department name so the skyline reads varied.
+function cityStyle(name) {
+  const s = (name || "").toLowerCase();
+  if (/manufactur|operation|supply|process|\bfab|logistic|quality|assembly|packag/.test(s)) return "factory";
+  if (/sales|market|applicat|field|customer|brand|account|revenue/.test(s)) return "retail";
+  if (/design|verif|silicon|rtl|analog|physical|software|systems|engineer|dft|emulation|architect|research|product|\btest/.test(s)) return "lab";
+  if (/finance|\bhr\b|people|legal|\bit\b|security|corporate|strategy|exec|g&a|admin|talent/.test(s)) return "office";
+  return "tower";
+}
+
+// Step inside a building: every employee of that department is a little person at a desk (1:1).
+function BuildingInterior({ building, onClose, onSelect }) {
+  const mountRef = useRef(null), tipRef = useRef(null);
+  const selRef = useRef(onSelect); selRef.current = onSelect;
+  useEffect(() => {
+    const mount = mountRef.current; if (!mount) return;
+    const members = building.members || [];
+    const canvas = document.createElement("canvas"); canvas.style.display = "block"; canvas.style.cursor = "grab"; mount.appendChild(canvas);
+    const ctx = canvas.getContext("2d"); const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const TW = 46, TH = 23, WALLH = 42;
+    let W = 1, H = 1;
+    const n = members.length;
+    const cols = Math.max(1, Math.ceil(Math.sqrt(n * 1.7)));
+    const rows = Math.ceil(n / cols);
+    const desks = members.map((e, i) => ({ e, gx: i % cols, gy: Math.floor(i / cols), bob: Math.random() * 6.28, skin: SKIN[(i * 13) % SKIN.length] }));
+    desks.sort((a, b) => (a.gx + a.gy) - (b.gx + b.gy));
+    const cam = { ox: 0, oy: 0, zoom: 1 };
+    function w2s(gx, gy) { return [((gx - gy) * TW / 2) * cam.zoom + cam.ox, ((gx + gy) * TH / 2) * cam.zoom + cam.oy]; }
+    function poly(pts, fill) { ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]); ctx.closePath(); ctx.fillStyle = fill; ctx.fill(); }
+    const up = (p, d) => [p[0], p[1] - d];
+    function fit() {
+      const spanX = (cols + rows) * TW / 2, spanY = (cols + rows) * TH / 2 + WALLH;
+      cam.zoom = Math.max(0.3, Math.min(2.2, Math.min((W * 0.82) / Math.max(1, spanX), (H * 0.7) / Math.max(1, spanY))));
+      const cx = (cols - 1) / 2, cy = (rows - 1) / 2;
+      cam.ox = W / 2 - ((cx - cy) * TW / 2) * cam.zoom;
+      cam.oy = H / 2 - ((cx + cy) * TH / 2) * cam.zoom + WALLH * 0.4;
+    }
+    let raf = 0, last = performance.now(), clock = 0, hover = -1;
+    function frame(now) {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now; clock += dt;
+      ctx.fillStyle = "#0e1018"; ctx.fillRect(0, 0, W, H);
+      const wh = WALLH * cam.zoom;
+      const Nc = w2s(-0.5, -0.5), Lc = w2s(-0.5, rows - 0.5), Rc = w2s(cols - 0.5, -0.5);
+      poly([Nc, Lc, up(Lc, wh), up(Nc, wh)], "#2a2f3d");
+      poly([Nc, Rc, up(Rc, wh), up(Nc, wh)], "#343b4d");
+      for (let g = 0; g < rows; g += 2) { const a = w2s(-0.5, g), b = w2s(-0.5, g + 0.7); poly([up(a, wh * 0.78), up(b, wh * 0.78), up(b, wh * 0.4), up(a, wh * 0.4)], "rgba(150,200,255,0.16)"); }
+      for (let g = 0; g < cols; g += 2) { const a = w2s(g, -0.5), b = w2s(g + 0.7, -0.5); poly([up(a, wh * 0.78), up(b, wh * 0.78), up(b, wh * 0.4), up(a, wh * 0.4)], "rgba(150,200,255,0.16)"); }
+      for (let x = 0; x < cols; x++) for (let y = 0; y < rows; y++) poly([w2s(x - 0.5, y - 0.5), w2s(x + 0.5, y - 0.5), w2s(x + 0.5, y + 0.5), w2s(x - 0.5, y + 0.5)], (x + y) % 2 ? "#3a4150" : "#424a5b");
+      desks.forEach((d, idx) => {
+        const s = w2s(d.gx, d.gy), z = cam.zoom;
+        poly([w2s(d.gx - 0.34, d.gy - 0.08), w2s(d.gx + 0.34, d.gy - 0.08), w2s(d.gx + 0.34, d.gy + 0.34), w2s(d.gx - 0.34, d.gy + 0.34)], "#6b4f33");
+        ctx.fillStyle = "rgba(0,0,0,0.28)"; ctx.beginPath(); ctx.ellipse(s[0], s[1], 7 * z, 3.4 * z, 0, 0, 6.28); ctx.fill();
+        const senior = levelIndex(d.e.level) >= 6;
+        const bodyH = (senior ? 16 : 12) * z, bob = Math.sin(clock * 2 + d.bob) * 1.5 * z, bw = 6 * z;
+        ctx.fillStyle = FN_COLORS[d.e.fn] || building.color || "#6b9";
+        ctx.beginPath(); ctx.moveTo(s[0] - bw, s[1] - bob); ctx.lineTo(s[0] + bw, s[1] - bob); ctx.lineTo(s[0] + bw * 0.7, s[1] - bob - bodyH); ctx.lineTo(s[0] - bw * 0.7, s[1] - bob - bodyH); ctx.closePath(); ctx.fill();
+        ctx.fillStyle = d.skin; ctx.beginPath(); ctx.arc(s[0], s[1] - bob - bodyH - 4 * z, 4 * z, 0, 6.28); ctx.fill();
+        if (senior) { ctx.fillStyle = "#fde047"; ctx.fillRect(s[0] - 1 * z, s[1] - bob - bodyH, 2 * z, bodyH * 0.5); } // tie marks a lead
+        if (idx === hover) { ctx.strokeStyle = "#fde047"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(s[0], s[1] - bob - bodyH * 0.4, 12 * z, 0, 6.28); ctx.stroke(); }
+      });
+      raf = requestAnimationFrame(frame);
+    }
+    function pick(mx, my) { let best = -1, bd = 16 * cam.zoom; for (let i = 0; i < desks.length; i++) { const s = w2s(desks[i].gx, desks[i].gy); const dd = Math.hypot(mx - s[0], my - (s[1] - 9 * cam.zoom)); if (dd < bd) { bd = dd; best = i; } } return best; }
+    let dragging = false, lx = 0, ly = 0, moved = false;
+    function onDown(e) { dragging = true; moved = false; lx = e.clientX; ly = e.clientY; canvas.style.cursor = "grabbing"; }
+    function onMove(e) {
+      const rect = canvas.getBoundingClientRect();
+      if (dragging) { cam.ox += e.clientX - lx; cam.oy += e.clientY - ly; lx = e.clientX; ly = e.clientY; moved = true; return; }
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top, h = pick(mx, my); hover = h;
+      const tip = tipRef.current;
+      if (h >= 0 && tip) { const e2 = desks[h].e; tip.style.display = "block"; tip.style.left = (mx + 14) + "px"; tip.style.top = (my + 12) + "px"; tip.innerHTML = `<b>${e2.first} ${e2.last}</b><br/>${(e2.title || "").replace(/[<>]/g, "")}<br/>${displayLevel(e2.level)}`; canvas.style.cursor = "pointer"; }
+      else if (tip) { tip.style.display = "none"; canvas.style.cursor = "grab"; }
+    }
+    function onUp() { dragging = false; canvas.style.cursor = "grab"; }
+    function onClick(e) { if (moved) return; const rect = canvas.getBoundingClientRect(); const h = pick(e.clientX - rect.left, e.clientY - rect.top); if (h >= 0) selRef.current(desks[h].e); }
+    function onWheel(e) { e.preventDefault(); const rect = canvas.getBoundingClientRect(), mx = e.clientX - rect.left, my = e.clientY - rect.top, k = e.deltaY < 0 ? 1.12 : 1 / 1.12, nz = Math.max(0.3, Math.min(3, cam.zoom * k)), f = nz / cam.zoom; cam.ox = mx - (mx - cam.ox) * f; cam.oy = my - (my - cam.oy) * f; cam.zoom = nz; }
+    canvas.addEventListener("pointerdown", onDown); window.addEventListener("pointermove", onMove); window.addEventListener("pointerup", onUp); canvas.addEventListener("click", onClick); canvas.addEventListener("wheel", onWheel, { passive: false });
+    const ro = new ResizeObserver(() => { W = mount.clientWidth || 800; H = mount.clientHeight || 600; canvas.width = W * dpr; canvas.height = H * dpr; canvas.style.width = W + "px"; canvas.style.height = H + "px"; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); fit(); });
+    ro.observe(mount);
+    W = mount.clientWidth || 800; H = mount.clientHeight || 600; canvas.width = W * dpr; canvas.height = H * dpr; canvas.style.width = W + "px"; canvas.style.height = H + "px"; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); fit();
+    raf = requestAnimationFrame(frame);
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); canvas.removeEventListener("pointerdown", onDown); window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); canvas.removeEventListener("click", onClick); canvas.removeEventListener("wheel", onWheel); if (canvas.parentNode === mount) mount.removeChild(canvas); };
+  }, [building]);
+  return (
+    <div className="absolute inset-0 z-30" style={{ background: "#0e1018" }}>
+      <div ref={mountRef} className="absolute inset-0" />
+      <div ref={tipRef} className="absolute pointer-events-none px-2 py-1 rounded text-white text-xs" style={{ display: "none", background: "rgba(15,23,42,0.92)", border: "1px solid rgba(148,163,184,0.4)", zIndex: 20, lineHeight: 1.4 }} />
+      <button onClick={onClose} className="absolute top-3 left-3 z-10 text-xs px-3 py-1.5 rounded-lg bg-white/90 text-gray-700 hover:bg-white font-medium shadow">← Back to city</button>
+      <div className="absolute top-3 right-3 z-10 px-3 py-1.5 rounded-md text-white" style={{ fontSize: 12, background: "rgba(2,8,23,0.6)", backdropFilter: "blur(4px)" }}>
+        🏢 {building.name} <span style={{ opacity: 0.8, fontWeight: 400 }}>· {building.bu} · {(building.members || []).length} people</span>
+      </div>
+      <div className="absolute bottom-3 left-3 z-10 px-3 py-1.5 rounded-md" style={{ fontSize: 11, background: "rgba(2,8,23,0.5)", color: "#dbe7ff" }}>each person is one employee · gold tie = a lead · hover for name · click to open their card · drag/scroll to look around</div>
+    </div>
+  );
+}
+
 // Isometric "city" org view — SimCity/RCT style. Business Units are districts, each team a
 // building whose height grows with headcount, with tiny employees milling the plazas. Pure
-// canvas 2D (no libraries). Drag to pan, wheel to zoom, hover/click a building for its team.
+// canvas 2D (no libraries). Drag to pan, wheel to zoom, click a building to step inside.
 function CityOrgView() {
   const { activeEmployees, tree, colorBy, setDetailPanel } = useContext(AppCtx);
   const mountRef = useRef(null);
   const tipRef = useRef(null);
   const setDetailRef = useRef(setDetailPanel); setDetailRef.current = setDetailPanel;
   const treeRef = useRef(tree); treeRef.current = tree;
+  const [interior, setInterior] = useState(null);
+  const setInteriorRef = useRef(setInterior); setInteriorRef.current = setInterior;
 
   // Group the active org into BU districts -> dept buildings, then lay them out on a tile grid.
   const layout = useMemo(() => {
@@ -7777,7 +7876,7 @@ function CityOrgView() {
       for (const [dept, list] of dm) {
         let top = list[0];
         list.forEach(e => { if (levelIndex(e.level) > levelIndex(top.level)) top = e; });
-        depts.push({ name: dept, count: list.length, top });
+        depts.push({ name: dept, count: list.length, top, members: list });
       }
       depts.sort((a, b) => b.count - a.count);
       districts.push({ bu, depts, total: depts.reduce((s, d) => s + d.count, 0) });
@@ -7804,7 +7903,7 @@ function CityOrgView() {
         const ppl = [];
         const pc = Math.min(18, Math.max(1, Math.round(dp.count / 4)));
         for (let p = 0; p < pc; p++) ppl.push({ ang: Math.random() * 6.28, rad: foot * 0.55 + Math.random() * 0.8, spd: 0.4 + Math.random() });
-        buildings.push({ gx: bx, gy: by, foot, h, name: dp.name, count: dp.count, color, bu: dist.bu, top: dp.top, people: ppl, seed: (i * 17 + di * 7) % 100 });
+        buildings.push({ gx: bx, gy: by, foot, h, name: dp.name, count: dp.count, color, bu: dist.bu, top: dp.top, members: dp.members, style: cityStyle(dp.name), people: ppl, seed: (i * 17 + di * 7) % 100 });
         placed.push([bx, by]);
       });
       let attempts = 0, made = 0;
@@ -7863,17 +7962,24 @@ function CityOrgView() {
         poly([pt(u0, v0), pt(u1, v0), pt(u1, v1), pt(u0, v1)], lit ? "rgba(255,231,150,0.92)" : "rgba(40,52,70,0.7)");
       }
     }
-    function drawBuilding(b, hi) {
-      const f = b.foot / 2, ht = b.h * cam.zoom;
+    function drawBuilding(b, hi, clock) {
+      const f = b.foot / 2, ht = b.h * cam.zoom, z = cam.zoom;
       const A = w2s(b.gx - f, b.gy - f), B = w2s(b.gx + f, b.gy - f), C = w2s(b.gx + f, b.gy + f), D = w2s(b.gx - f, b.gy + f);
       const up = p => [p[0], p[1] - ht];
       ctx.save(); ctx.globalAlpha = 0.16; poly([w2s(b.gx - f, b.gy + f * 1.5), w2s(b.gx + f * 1.5, b.gy + f), w2s(b.gx + f, b.gy - f * 0.2), w2s(b.gx - f * 0.2, b.gy + f)], "#000"); ctx.restore();
       poly([B, C, up(C), up(B)], shade(b.color, 0.72)); // right face
-      if (b.h > 16 && cam.zoom > 0.4) windows(B, C, ht, b, 1);
+      if (b.h > 16 && z > 0.4) windows(B, C, ht, b, 1);
       poly([D, C, up(C), up(D)], shade(b.color, 0.55)); // left face
-      if (b.h > 16 && cam.zoom > 0.4) windows(D, C, ht, b, 4);
+      if (b.h > 16 && z > 0.4) windows(D, C, ht, b, 4);
       poly([up(A), up(B), up(C), up(D)], shade(b.color, hi ? 1.18 : 1.0)); // roof
       ctx.strokeStyle = hi ? "#fde047" : "rgba(0,0,0,0.18)"; ctx.lineWidth = hi ? 2.5 : 1; ctx.stroke();
+      // rooftop flair by building type
+      const cc = w2s(b.gx, b.gy), rx = cc[0], ry = cc[1] - ht;
+      if (b.style === "tower") { ctx.strokeStyle = "#9aa3b2"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx, ry - 20 * z); ctx.stroke(); ctx.fillStyle = Math.sin(clock * 4) > 0 ? "#ff5a5a" : "#7a2222"; ctx.beginPath(); ctx.arc(rx, ry - 20 * z, 2.3 * z, 0, 6.28); ctx.fill(); }
+      else if (b.style === "office") { ctx.fillStyle = "#8b95a6"; for (let k = 0; k < 3; k++) ctx.fillRect(rx - 9 * z + k * 7 * z, ry - 5 * z, 4.5 * z, 5 * z); }
+      else if (b.style === "factory") { ctx.fillStyle = "#5b6270"; ctx.fillRect(rx + 3 * z, ry - 15 * z, 5 * z, 15 * z); for (let k = 0; k < 3; k++) { const tt = (clock * 0.5 + k * 0.5) % 1.5; ctx.fillStyle = `rgba(205,205,205,${0.32 * (1 - tt / 1.5)})`; ctx.beginPath(); ctx.arc(rx + 5.5 * z, ry - 17 * z - tt * 22 * z, (2 + tt * 3) * z, 0, 6.28); ctx.fill(); } }
+      else if (b.style === "lab") { ctx.fillStyle = shade(b.color, 1.12); ctx.beginPath(); ctx.ellipse(rx, ry, f * TW * 0.34 * z, f * TH * 0.62 * z, 0, Math.PI, 0); ctx.fill(); }
+      else if (b.style === "retail") { ctx.fillStyle = "#1f2937"; ctx.fillRect(rx - 13 * z, ry - 24 * z, 26 * z, 13 * z); ctx.fillStyle = "#fbbf24"; ctx.textAlign = "center"; ctx.font = `${7 * z}px 'DM Sans', sans-serif`; ctx.fillText(b.name.split(/[ &/]/).filter(Boolean).map(w => w[0]).join("").slice(0, 3).toUpperCase(), rx, ry - 14.5 * z); }
     }
     function drawTree(g) {
       const s = w2s(g.gx, g.gy), z = cam.zoom;
@@ -7890,7 +7996,7 @@ function CityOrgView() {
       poly([up(A), up(B), up(C), up(D)], shade(c.color, 1.1));
     }
 
-    let hover = -1, raf = 0, last = performance.now();
+    let hover = -1, raf = 0, last = performance.now(), clock = 0;
     const sorted = [...layout.buildings].map((b, i) => ({ b, i })).sort((p, q) => (p.b.gx + p.b.gy) - (q.b.gx + q.b.gy));
 
     // cars cruising the streets between districts
@@ -7901,7 +8007,7 @@ function CityOrgView() {
     for (let r = 0; r <= layout.rows; r++) cars.push({ axis: "h", fixed: r * (layout.DSIZE + layout.GAP) + layout.GAP / 2, pos: Math.random() * span, dir: Math.random() < 0.5 ? 1 : -1, spd: 1.2 + Math.random(), color: CAR_COLORS[(r + 3) % CAR_COLORS.length], gx: 0, gy: 0 });
 
     function frame(now) {
-      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      const dt = Math.min(0.05, (now - last) / 1000); last = now; clock += dt;
       const sky = ctx.createLinearGradient(0, 0, 0, H);
       sky.addColorStop(0, "#bfe3ff"); sky.addColorStop(1, "#eaf6ef");
       ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
@@ -7916,7 +8022,7 @@ function CityOrgView() {
       items.sort((p, q) => p.d - q.d);
       items.forEach(it => {
         if (it.kind === "b") {
-          drawBuilding(it.b, it.i === hover);
+          drawBuilding(it.b, it.i === hover, clock);
           ctx.fillStyle = "rgba(20,24,30,0.82)";
           it.b.people.forEach(pn => { pn.ang += pn.spd * dt; const px = it.b.gx + Math.cos(pn.ang) * pn.rad * 0.18, py = it.b.gy + Math.sin(pn.ang) * pn.rad * 0.18; const s = w2s(px, py); ctx.beginPath(); ctx.arc(s[0], s[1], Math.max(1, 1.6 * cam.zoom), 0, 6.28); ctx.fill(); });
         } else if (it.kind === "t") drawTree(it.g);
@@ -7957,7 +8063,7 @@ function CityOrgView() {
       if (moved) return;
       const rect = canvas.getBoundingClientRect();
       const h = hitTest(e.clientX - rect.left, e.clientY - rect.top);
-      if (h >= 0) { const top = layout.buildings[h].top; setDetailRef.current((treeRef.current && treeRef.current.map[top.id]) || top); }
+      if (h >= 0) setInteriorRef.current(layout.buildings[h]);
     }
     function onWheel(e) {
       e.preventDefault();
@@ -8005,8 +8111,9 @@ function CityOrgView() {
         🏙 Org City <span style={{ fontWeight: 400, fontSize: 11, opacity: 0.85 }}>· districts = Business Units · buildings = teams (taller = bigger)</span>
       </div>
       <div className="absolute bottom-3 left-3 z-10 px-3 py-1.5 rounded-md" style={{ fontSize: 11, background: "rgba(2,8,23,0.5)", color: "#dbe7ff", backdropFilter: "blur(4px)" }}>
-        drag to pan · scroll to zoom · hover a building for the team · click to open its lead
+        drag to pan · scroll to zoom · hover a building for the team · <b>click a building to step inside</b>
       </div>
+      {interior && <BuildingInterior building={interior} onClose={() => setInterior(null)} onSelect={emp => setDetailRef.current((treeRef.current && treeRef.current.map[emp.id]) || emp)} />}
     </div>
   );
 }
