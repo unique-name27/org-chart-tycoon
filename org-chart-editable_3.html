@@ -7750,6 +7750,213 @@ function GalaxyOrgView() {
   );
 }
 
+// Isometric "city" org view — SimCity/RCT style. Business Units are districts, each team a
+// building whose height grows with headcount, with tiny employees milling the plazas. Pure
+// canvas 2D (no libraries). Drag to pan, wheel to zoom, hover/click a building for its team.
+function CityOrgView() {
+  const { activeEmployees, tree, colorBy, setDetailPanel } = useContext(AppCtx);
+  const mountRef = useRef(null);
+  const tipRef = useRef(null);
+  const setDetailRef = useRef(setDetailPanel); setDetailRef.current = setDetailPanel;
+  const treeRef = useRef(tree); treeRef.current = tree;
+
+  // Group the active org into BU districts -> dept buildings, then lay them out on a tile grid.
+  const layout = useMemo(() => {
+    const emps = (activeEmployees || []);
+    const buMap = new Map();
+    emps.forEach(e => {
+      const bu = e.bg || "Unassigned", dept = e.dept || "General";
+      if (!buMap.has(bu)) buMap.set(bu, new Map());
+      const dm = buMap.get(bu);
+      if (!dm.has(dept)) dm.set(dept, []);
+      dm.get(dept).push(e);
+    });
+    const districts = [];
+    for (const [bu, dm] of buMap) {
+      const depts = [];
+      for (const [dept, list] of dm) {
+        let top = list[0];
+        list.forEach(e => { if (levelIndex(e.level) > levelIndex(top.level)) top = e; });
+        depts.push({ name: dept, count: list.length, top });
+      }
+      depts.sort((a, b) => b.count - a.count);
+      districts.push({ bu, depts, total: depts.reduce((s, d) => s + d.count, 0) });
+    }
+    districts.sort((a, b) => b.total - a.total);
+
+    const buildings = [], people = [], plates = [];
+    const N = districts.length || 1;
+    const cols = Math.max(1, Math.ceil(Math.sqrt(N)));
+    const DSIZE = 11, GAP = 3;
+    districts.forEach((dist, di) => {
+      const dx = (di % cols) * (DSIZE + GAP) + GAP, dy = Math.floor(di / cols) * (DSIZE + GAP) + GAP;
+      plates.push({ gx: dx, gy: dy, size: DSIZE, bu: dist.bu });
+      const m = Math.max(1, Math.ceil(Math.sqrt(dist.depts.length)));
+      const cell = (DSIZE - 1.5) / m;
+      dist.depts.forEach((dp, i) => {
+        const bx = dx + 0.75 + (i % m) * cell + cell / 2;
+        const by = dy + 0.75 + Math.floor(i / m) * cell + cell / 2;
+        const foot = Math.max(0.7, Math.min(cell * 0.78, 0.8 + Math.sqrt(dp.count) * 0.18));
+        const h = 10 + Math.min(140, Math.sqrt(dp.count) * 12);
+        const color = colorBy === "business_group" ? (BG_COLORS[dist.bu] || "#8aa0b8") : (DEPT_COLORS[dp.name] || "#8aa0b8");
+        buildings.push({ gx: bx, gy: by, foot, h, name: dp.name, count: dp.count, color, bu: dist.bu, top: dp.top });
+        const pc = Math.min(20, Math.max(1, Math.round(dp.count / 4)));
+        for (let p = 0; p < pc; p++) people.push({ bx, by, ang: Math.random() * 6.28, rad: foot * 0.6 + Math.random() * 0.9, spd: 0.4 + Math.random(), col: color });
+      });
+    });
+    const rows = Math.ceil(N / cols);
+    return { buildings, people, plates, extentX: cols * (DSIZE + GAP) + GAP, extentY: rows * (DSIZE + GAP) + GAP };
+  }, [activeEmployees, colorBy]);
+
+  useEffect(() => {
+    const mount = mountRef.current; if (!mount) return;
+    const canvas = document.createElement("canvas");
+    canvas.style.display = "block"; canvas.style.cursor = "grab";
+    mount.appendChild(canvas);
+    const ctx = canvas.getContext("2d");
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const TW = 64, TH = 32;
+    let W = 1, H = 1;
+    const cam = { ox: 0, oy: 0, zoom: 0.75 };
+
+    function w2s(gx, gy) { return [((gx - gy) * TW / 2) * cam.zoom + cam.ox, ((gx + gy) * TH / 2) * cam.zoom + cam.oy]; }
+    function centerCam() {
+      const cx = layout.extentX / 2, cy = layout.extentY / 2;
+      cam.ox = W / 2 - ((cx - cy) * TW / 2) * cam.zoom;
+      cam.oy = H / 2 - ((cx + cy) * TH / 2) * cam.zoom;
+    }
+    function shade(hex, f) {
+      const s = (hex || "#889").replace("#", ""); const n = s.length === 3 ? s.split("").map(x => x + x).join("") : s;
+      const r = Math.min(255, Math.round(parseInt(n.slice(0, 2), 16) * f));
+      const g = Math.min(255, Math.round(parseInt(n.slice(2, 4), 16) * f));
+      const b = Math.min(255, Math.round(parseInt(n.slice(4, 6), 16) * f));
+      return `rgb(${r},${g},${b})`;
+    }
+    function poly(pts, fill) { ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]); ctx.closePath(); ctx.fillStyle = fill; ctx.fill(); }
+    function plate(gx, gy, size, fill) {
+      poly([w2s(gx, gy), w2s(gx + size, gy), w2s(gx + size, gy + size), w2s(gx, gy + size)], fill);
+      ctx.strokeStyle = "rgba(0,0,0,0.06)"; ctx.lineWidth = 1; ctx.stroke();
+    }
+    function bbox(b) {
+      const f = b.foot / 2, ht = b.h * cam.zoom;
+      const A = w2s(b.gx - f, b.gy - f), C = w2s(b.gx + f, b.gy + f), Bp = w2s(b.gx + f, b.gy - f), Dp = w2s(b.gx - f, b.gy - f);
+      const xs = [A[0], C[0], Bp[0], Dp[0]], ys = [A[1] - ht, C[1], A[1], C[1] - ht];
+      return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+    }
+    function drawBuilding(b, hi) {
+      const f = b.foot / 2, ht = b.h * cam.zoom;
+      const A = w2s(b.gx - f, b.gy - f), B = w2s(b.gx + f, b.gy - f), C = w2s(b.gx + f, b.gy + f), D = w2s(b.gx - f, b.gy + f);
+      const up = p => [p[0], p[1] - ht];
+      poly([B, C, up(C), up(B)], shade(b.color, 0.72)); // right face
+      poly([D, C, up(C), up(D)], shade(b.color, 0.55)); // left face
+      poly([up(A), up(B), up(C), up(D)], shade(b.color, hi ? 1.15 : 1.0)); // roof
+      ctx.strokeStyle = hi ? "#fde047" : "rgba(0,0,0,0.18)"; ctx.lineWidth = hi ? 2 : 1; ctx.stroke();
+    }
+
+    let hover = -1, raf = 0, last = performance.now(), t = 0;
+    const sorted = [...layout.buildings].map((b, i) => ({ b, i })).sort((p, q) => (p.b.gx + p.b.gy) - (q.b.gx + q.b.gy));
+
+    function frame(now) {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now; t += dt;
+      // sky
+      const sky = ctx.createLinearGradient(0, 0, 0, H);
+      sky.addColorStop(0, "#bfe3ff"); sky.addColorStop(1, "#eaf6ef");
+      ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+      // road base under everything, then grass district plates (gaps read as streets)
+      plate(0, 0, Math.max(layout.extentX, layout.extentY), "#9a9d90");
+      layout.plates.forEach(p => plate(p.gx, p.gy, p.size, "#bcd6a3"));
+      // buildings back-to-front
+      sorted.forEach(({ b, i }) => drawBuilding(b, i === hover));
+      // people wander near their building
+      ctx.fillStyle = "rgba(20,24,30,0.8)";
+      layout.people.forEach(pn => {
+        pn.ang += pn.spd * dt;
+        const px = pn.bx + Math.cos(pn.ang) * pn.rad * 0.18, py = pn.by + Math.sin(pn.ang) * pn.rad * 0.18;
+        const s = w2s(px, py);
+        ctx.beginPath(); ctx.arc(s[0], s[1], Math.max(1, 1.7 * cam.zoom), 0, 6.28); ctx.fill();
+      });
+      raf = requestAnimationFrame(frame);
+    }
+
+    function hitTest(mx, my) {
+      for (let k = sorted.length - 1; k >= 0; k--) {
+        const b = sorted[k].b, bb = bbox(b);
+        if (mx >= bb[0] && mx <= bb[2] && my >= bb[1] && my <= bb[3]) return sorted[k].i;
+      }
+      return -1;
+    }
+
+    // interaction
+    let dragging = false, lx = 0, ly = 0, moved = false;
+    function onDown(e) { dragging = true; moved = false; lx = e.clientX; ly = e.clientY; canvas.style.cursor = "grabbing"; }
+    function onMove(e) {
+      const rect = canvas.getBoundingClientRect();
+      if (dragging) { cam.ox += e.clientX - lx; cam.oy += e.clientY - ly; lx = e.clientX; ly = e.clientY; if (Math.abs(e.clientX) + Math.abs(e.clientY)) moved = true; return; }
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      const h = hitTest(mx, my); hover = h;
+      const tip = tipRef.current;
+      if (h >= 0 && tip) { const b = layout.buildings[h]; tip.style.display = "block"; tip.style.left = (mx + 14) + "px"; tip.style.top = (my + 12) + "px"; tip.innerHTML = `<b>${b.name}</b><br/>${b.bu}<br/>${b.count} ${b.count === 1 ? "person" : "people"}`; canvas.style.cursor = "pointer"; }
+      else if (tip) { tip.style.display = "none"; canvas.style.cursor = "grab"; }
+    }
+    function onUp() { dragging = false; canvas.style.cursor = "grab"; }
+    function onClick(e) {
+      if (moved) return;
+      const rect = canvas.getBoundingClientRect();
+      const h = hitTest(e.clientX - rect.left, e.clientY - rect.top);
+      if (h >= 0) { const top = layout.buildings[h].top; setDetailRef.current((treeRef.current && treeRef.current.map[top.id]) || top); }
+    }
+    function onWheel(e) {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect(), mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      const k = e.deltaY < 0 ? 1.12 : 1 / 1.12, nz = Math.max(0.25, Math.min(2.5, cam.zoom * k)), f = nz / cam.zoom;
+      cam.ox = mx - (mx - cam.ox) * f; cam.oy = my - (my - cam.oy) * f; cam.zoom = nz;
+    }
+    canvas.addEventListener("pointerdown", onDown);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    canvas.addEventListener("click", onClick);
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+
+    const ro = new ResizeObserver(() => {
+      W = mount.clientWidth || 800; H = mount.clientHeight || 600;
+      canvas.width = W * dpr; canvas.height = H * dpr; canvas.style.width = W + "px"; canvas.style.height = H + "px";
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); centerCam();
+    });
+    ro.observe(mount);
+    W = mount.clientWidth || 800; H = mount.clientHeight || 600;
+    canvas.width = W * dpr; canvas.height = H * dpr; canvas.style.width = W + "px"; canvas.style.height = H + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0); centerCam();
+    raf = requestAnimationFrame(frame);
+
+    return () => {
+      cancelAnimationFrame(raf); ro.disconnect();
+      canvas.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      canvas.removeEventListener("click", onClick);
+      canvas.removeEventListener("wheel", onWheel);
+      if (canvas.parentNode === mount) mount.removeChild(canvas);
+    };
+  }, [layout]);
+
+  if (!activeEmployees || activeEmployees.length === 0) {
+    return <div className="h-full w-full flex items-center justify-center text-gray-400 text-sm">No data</div>;
+  }
+  return (
+    <div className="flex-1 min-h-0 w-full relative overflow-hidden" style={{ background: "#bfe3ff" }}>
+      <div ref={mountRef} className="absolute inset-0" />
+      <div ref={tipRef} className="absolute pointer-events-none px-2 py-1 rounded text-white text-xs"
+        style={{ display: "none", background: "rgba(15,23,42,0.92)", border: "1px solid rgba(148,163,184,0.4)", zIndex: 20, lineHeight: 1.4 }} />
+      <div className="absolute top-3 left-3 z-10 px-3 py-1.5 rounded-md text-white" style={{ fontSize: 12, fontWeight: 700, background: "rgba(2,8,23,0.55)", backdropFilter: "blur(4px)" }}>
+        🏙 Org City <span style={{ fontWeight: 400, fontSize: 11, opacity: 0.85 }}>· districts = Business Units · buildings = teams (taller = bigger)</span>
+      </div>
+      <div className="absolute bottom-3 left-3 z-10 px-3 py-1.5 rounded-md" style={{ fontSize: 11, background: "rgba(2,8,23,0.5)", color: "#dbe7ff", backdropFilter: "blur(4px)" }}>
+        drag to pan · scroll to zoom · hover a building for the team · click to open its lead
+      </div>
+    </div>
+  );
+}
+
 function WhiteboardOrgView() {
   const {
     chartDisplayRoot, setDetailPanel,
@@ -10522,7 +10729,7 @@ function OrgChartApp() {
                   {/* View mode pills — Treemap/Sunburst are advanced */}
                   {atLeast(mode, "advanced") && (
                     <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5 mr-2">
-                      {[["tree","Tree"],["treemap","Treemap"],["sunburst","Sunburst"],["whiteboard","Whiteboard"],["galaxy","3D Galaxy"]].map(([m,l]) => (
+                      {[["tree","Tree"],["treemap","Treemap"],["sunburst","Sunburst"],["whiteboard","Whiteboard"],["galaxy","3D Galaxy"],["city","🏙 City"]].map(([m,l]) => (
                         <button key={m} onClick={() => setOrgViewMode(m)}
                           className="text-xs px-2.5 py-1 rounded-md transition-all"
                           style={{ background: orgViewMode === m ? "white" : "transparent", color: orgViewMode === m ? "#1e293b" : "#64748b", fontWeight: orgViewMode === m ? 600 : 400, boxShadow: orgViewMode === m ? "0 1px 3px rgba(0,0,0,0.1)" : "none" }}>
@@ -10567,6 +10774,7 @@ function OrgChartApp() {
                 {orgViewMode === "sunburst" && <SunburstOrgView/>}
                 {orgViewMode === "whiteboard" && <WhiteboardOrgView/>}
                 {orgViewMode === "galaxy" && <GalaxyOrgView/>}
+                {orgViewMode === "city" && <CityOrgView/>}
               </div>
             )}
             {view === "timeline"    && <TimelineView/>}
