@@ -7950,8 +7950,11 @@ function CityOrgView() {
       dist.depts.forEach((dp, i) => {
         const bx = dx + 0.75 + (i % m) * cell + cell / 2;
         const by = dy + 0.75 + Math.floor(i / m) * cell + cell / 2;
-        const foot = Math.max(0.7, Math.min(cell * 0.78, 0.8 + Math.sqrt(dp.count) * 0.18));
-        const h = 10 + Math.min(140, Math.sqrt(dp.count) * 12);
+        // Size tracks team headcount with a wide dynamic range so the skyline really varies:
+        // small teams are stubby, big teams tower. A little deterministic jitter keeps equal-size teams distinct.
+        const foot = Math.max(0.55, Math.min(cell * 0.82, 0.5 + Math.pow(dp.count, 0.6) * 0.16));
+        const jit = 0.85 + ((i * 37 + di * 13) % 30) / 100; // ±~15%
+        const h = (8 + Math.min(310, Math.pow(dp.count, 0.85) * 5.6)) * jit;
         const color = colorBy === "business_group" ? (BG_COLORS[dist.bu] || "#8aa0b8") : (DEPT_COLORS[dp.name] || "#8aa0b8");
         const ppl = [];
         const pc = Math.min(18, Math.max(1, Math.round(dp.count / 4)));
