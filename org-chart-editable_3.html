@@ -7005,7 +7005,7 @@ function GalaxyOrgView() {
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x05060a);
-    scene.fog = new THREE.FogExp2(0x05060a, 0.00028);
+    scene.fog = new THREE.FogExp2(0x05060a, 0.00018);
 
     // Starfield backdrop — multiple dense layers for a deep, busy sky
     const starfield = new THREE.Group();
@@ -7069,9 +7069,11 @@ function GalaxyOrgView() {
     const inst = new THREE.InstancedMesh(sphereGeo, sphereMat, nodes.length);
     const dummy = new THREE.Object3D();
     const col = new THREE.Color();
+    const SUN_BOOST = 2.4; // make the CEO "sun" much bigger than its raw team-size scale
     nodes.forEach((n, i) => {
       dummy.position.set(n.x, n.y, n.z);
-      const s = sizeForNode(n);
+      let s = sizeForNode(n);
+      if (n.depth === 0) s *= SUN_BOOST;
       dummy.scale.set(s, s, s);
       dummy.updateMatrix();
       inst.setMatrixAt(i, dummy.matrix);
@@ -7093,11 +7095,12 @@ function GalaxyOrgView() {
     gGrad.addColorStop(1, "rgba(255,180,80,0)");
     gCtx.fillStyle = gGrad; gCtx.fillRect(0, 0, 128, 128);
     const glowTex = new THREE.CanvasTexture(gCanvas);
-    const glowMat = new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false });
+    const glowMat = new THREE.SpriteMaterial({ map: glowTex, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, fog: false });
     const glow = new THREE.Sprite(glowMat);
     glow.position.set(root0.x, root0.y, root0.z);
-    const gs = sizeForNode(root0) * 7;
+    const gs = sizeForNode(root0) * SUN_BOOST * 5; // big corona; fog-immune so the sun stays a visible beacon
     glow.scale.set(gs, gs, 1);
+    glow.renderOrder = -1;
     scene.add(glow);
 
     // Labels for senior levels (depth <= 3): canvas-texture sprites
@@ -7193,7 +7196,7 @@ function GalaxyOrgView() {
       renderer.domElement.requestPointerLock?.();
     }
     function exitFly() {
-      orbit.radius = THREE.MathUtils.clamp(flyCam.position.distanceTo(target), 50, maxR * 7);
+      orbit.radius = THREE.MathUtils.clamp(flyCam.position.distanceTo(target), 50, maxR * 3);
       orbit.theta = Math.atan2(flyCam.position.z, flyCam.position.x);
       orbit.phi = Math.acos(THREE.MathUtils.clamp(flyCam.position.y / (orbit.radius || 1), -1, 1));
     }
@@ -7219,7 +7222,7 @@ function GalaxyOrgView() {
     function onPointerUp() { dragging = false; }
     function onWheel(e) {
       e.preventDefault();
-      orbit.radius = THREE.MathUtils.clamp(orbit.radius * (1 + (e.deltaY > 0 ? 0.12 : -0.12)), 35, maxR * 9);
+      orbit.radius = THREE.MathUtils.clamp(orbit.radius * (1 + (e.deltaY > 0 ? 0.12 : -0.12)), 35, maxR * 3);
     }
     el.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("pointermove", onPointerMove);
@@ -7433,6 +7436,8 @@ function GalaxyOrgView() {
         const spd = fly.speed * (hyperActive ? 7 : 1);
         const moving = move.lengthSq() > 0;
         if (moving) fly.pos.addScaledVector(move.normalize(), spd * dt);
+        const LEASH = maxR * 1.7; // keep the sun in view — don't let the ship fly off into the void
+        if (fly.pos.lengthSq() > LEASH * LEASH) fly.pos.setLength(LEASH);
         flyCam.position.copy(fly.pos);
         updateWarp(dt, hyperInt);
         if (vignetteRef.current) vignetteRef.current.style.opacity = String(0.3 + hyperInt * 0.5);
