@@ -817,13 +817,23 @@ function buildTree(employees, activeOnly = true) {
   const map = {};
   filtered.forEach(e => { map[e.id] = { ...e, children: [], _expanded: false, _directReports: 0, _totalReports: 0 }; });
   let root = null;
+  const roots = [];
   const orphans = [];
   filtered.forEach(e => {
     const node = map[e.id];
-    if (!e.managerId) { root = node; }                          // true root (CEO)
+    if (!e.managerId) { roots.push(node); }                     // no manager — a top-level node
     else if (map[e.managerId]) { map[e.managerId].children.push(node); }
     else { orphans.push(node); }                                // manager inactive — collect
   });
+  // Pick one primary root. If several people have no manager (e.g. a flat import with no
+  // manager column), nest the rest under the most senior so everyone still appears once.
+  if (roots.length) {
+    roots.sort((a, b) => levelIndex(b.level) - levelIndex(a.level));
+    root = roots[0];
+    for (let i = 1; i < roots.length; i++) { roots[i].managerId = root.id; root.children.push(roots[i]); }
+  } else if (filtered.length) {
+    root = map[filtered[0].id]; root.managerId = null;          // everyone in a cycle — promote one
+  }
   // Re-parent orphaned employees (manager terminated, no active replacement) to root
   // so every active employee appears exactly once in the tree under a valid parent.
   if (root) {
@@ -2939,14 +2949,14 @@ const IMPORT_FIELDS = [
   { key: "first",          label: "First name",                           aliases: ["first","first name","firstname","given name","given","forename"] },
   { key: "last",           label: "Last name",                            aliases: ["last","last name","lastname","surname","family name"] },
   { key: "title",          label: "Job title",                            aliases: ["title","job title","jobtitle","role","position","job"] },
-  { key: "level",          label: "Level",                required: true,  aliases: ["level","grade","job level","joblevel","seniority","rank"] },
-  { key: "dept",           label: "Department",           required: true,  aliases: ["dept","department","team","sub-department","subdepartment","org unit","orgunit"] },
+  { key: "level",          label: "Level",                                 aliases: ["level","grade","job level","joblevel","seniority","rank"] },
+  { key: "dept",           label: "Department",                            aliases: ["dept","department","team","sub-department","subdepartment","org unit","orgunit"] },
   { key: "bg",             label: "Business Unit",                        aliases: ["bg","business unit","businessunit","bu","business group","division","segment"] },
   { key: "fn",             label: "Discipline / job family",              aliases: ["fn","discipline","function","job family","jobfamily","family"] },
   { key: "location",       label: "Location",                             aliases: ["location","city","site","office","work location","worklocation"] },
   { key: "country",        label: "Country",                              aliases: ["country","nation"] },
   { key: "employmentType", label: "Employment type",                      aliases: ["employmenttype","employment type","emp type","worker type","workertype","type"] },
-  { key: "managerId",      label: "Manager ID",           required: true,  aliases: ["managerid","manager id","manager","reports to","reportsto","supervisor id","supervisor","supervisorid","manager employee id"] },
+  { key: "managerId",      label: "Manager ID",                            aliases: ["managerid","manager id","manager","reports to","reportsto","supervisor id","supervisor","supervisorid","manager employee id"] },
   { key: "status",         label: "Status",                               aliases: ["status","active","employment status","employmentstatus"] },
   { key: "startDate",      label: "Start date",                           aliases: ["startdate","start date","hire date","hiredate","start","date hired"] },
   { key: "endDate",        label: "End date",                             aliases: ["enddate","end date","term date","termdate","end","exit date","termination date"] },
@@ -3003,9 +3013,14 @@ function EmployeeImportWizard({ data, onCancel, onConfirm }) {
   useEffect(() => { setMapping(autoMapping); }, [autoMapping]);
 
   const col = k => (mapping[k] ?? -1);
+  const REC = new Set(["fullName", "first", "last", "level", "dept", "managerId"]); // recommended, not required
   const nameOk = (col("first") >= 0 && col("last") >= 0) || col("fullName") >= 0;
-  const missing = ["id", "level", "dept", "managerId"].filter(k => col(k) < 0);
-  const canImport = missing.length === 0 && nameOk;
+  const canImport = col("id") >= 0; // only Employee ID is truly required
+  const willDefault = [];
+  if (!nameOk) willDefault.push("name → employee ID");
+  if (col("managerId") < 0) willDefault.push("manager → top-level");
+  if (col("level") < 0) willDefault.push("level → L3");
+  if (col("dept") < 0) willDefault.push("department → General");
 
   const preview = useMemo(() => rows.slice(0, 6).map(r => {
     const g = i => i >= 0 ? (r[i] ?? "").toString().trim() : "";
@@ -3049,13 +3064,13 @@ function EmployeeImportWizard({ data, onCancel, onConfirm }) {
               <label key={f.key} className="flex items-center gap-2 text-xs">
                 <span className="w-32 shrink-0 text-gray-600">{f.label}{f.required && <span className="text-red-500"> *</span>}</span>
                 <select value={col(f.key)} onChange={e => setMapping(m => ({ ...m, [f.key]: parseInt(e.target.value, 10) }))}
-                  className={`flex-1 min-w-0 border rounded-md px-2 py-1 bg-white text-gray-700 ${f.required && col(f.key) < 0 ? "border-red-300" : "border-gray-200"}`}>
+                  className={`flex-1 min-w-0 border rounded-md px-2 py-1 bg-white text-gray-700 ${col(f.key) < 0 && f.required ? "border-red-300" : col(f.key) < 0 && REC.has(f.key) ? "border-amber-300" : "border-gray-200"}`}>
                   {opts}
                 </select>
               </label>
             ))}
           </div>
-          <p className="text-[11px] text-gray-400 mb-4">Map either <b>Full name</b>, or both <b>First</b> and <b>Last</b>. Unrecognized levels default to L3 (marked <b>*</b>). Required fields are marked <span className="text-red-500">*</span>.</p>
+          <p className="text-[11px] text-gray-400 mb-4">Only <span className="text-red-500">*</span> <b>Employee ID</b> is required — anything you leave unmapped is filled with a sensible default (manager → top-level, level → L3, department → General, name → ID). Amber = recommended.</p>
 
           <div className="flex items-center gap-4 mb-4 text-xs">
             <span className="font-bold text-gray-600 uppercase tracking-wide">Mode</span>
@@ -3084,8 +3099,9 @@ function EmployeeImportWizard({ data, onCancel, onConfirm }) {
 
         <div className="px-5 py-3 border-t border-gray-100 flex items-center justify-between">
           <div className="text-xs text-gray-500">
-            {canImport ? <span className="text-emerald-600">Ready to import.</span>
-              : <span className="text-red-500">{missing.length ? `Map: ${missing.join(", ")}` : "Map a name (Full name, or First + Last)"}</span>}
+            {!canImport ? <span className="text-red-500">Map the Employee ID column to continue.</span>
+              : willDefault.length ? <span className="text-amber-600">Defaults will be applied: {willDefault.join("; ")}.</span>
+              : <span className="text-emerald-600">All set — ready to import.</span>}
           </div>
           <div className="flex items-center gap-2">
             <button onClick={onCancel} className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200">Cancel</button>
@@ -9930,6 +9946,7 @@ function OrgChartApp() {
         if (!first) first = p[0] || "";
         if (!last) last = p.slice(1).join(" ") || "";
       }
+      if (!first && !last) first = id; // never leave a person nameless (blank avatar/labels)
       const dept = get(row, col("dept")) || "General";
       let level = normalizeLevel(get(row, col("level")));
       if (!level) { level = "IC3"; lvDefaulted++; }
@@ -9945,7 +9962,8 @@ function OrgChartApp() {
         employmentType: get(row, col("employmentType")) || "FTE",
         managerId: mgr || null,
         status: get(row, col("status")) || "Active",
-        startDate: get(row, col("startDate")) || null,
+        // Missing dates default to ~18mo before "today" so tenure math stays sane (not 1970)
+        startDate: get(row, col("startDate")) || "2024-01-01",
         endDate: get(row, col("endDate")) || null,
         costCenter: get(row, col("costCenter")) || null,
         band: get(row, col("band")) || null,
