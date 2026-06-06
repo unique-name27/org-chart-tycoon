@@ -8076,20 +8076,74 @@ function CityOrgView() {
     for (let c = 0; c <= layout.cols; c++) cars.push({ axis: "v", fixed: c * (layout.DSIZE + layout.GAP) + layout.GAP / 2, pos: Math.random() * span, dir: Math.random() < 0.5 ? 1 : -1, spd: 1.2 + Math.random(), color: CAR_COLORS[c % CAR_COLORS.length], gx: 0, gy: 0 });
     for (let r = 0; r <= layout.rows; r++) cars.push({ axis: "h", fixed: r * (layout.DSIZE + layout.GAP) + layout.GAP / 2, pos: Math.random() * span, dir: Math.random() < 0.5 ? 1 : -1, spd: 1.2 + Math.random(), color: CAR_COLORS[(r + 3) % CAR_COLORS.length], gx: 0, gy: 0 });
 
+    // pedestrians on the sidewalks (two lanes either side of each street)
+    const PED_COLORS = ["#d9544c", "#3b82f6", "#e8b53b", "#10b981", "#ec5fa0", "#8b5cf6", "#e7e7ea", "#f97316"];
+    const peds = [];
+    for (let c = 0; c <= layout.cols; c++) for (const side of [-0.6, 0.6]) peds.push({ axis: "v", fixed: c * (layout.DSIZE + layout.GAP) + layout.GAP / 2 + side, pos: Math.random() * span, dir: Math.random() < 0.5 ? 1 : -1, spd: 0.4 + Math.random() * 0.4, color: PED_COLORS[(c + (side > 0 ? 1 : 0)) % PED_COLORS.length], gx: 0, gy: 0 });
+    for (let r = 0; r <= layout.rows; r++) for (const side of [-0.6, 0.6]) peds.push({ axis: "h", fixed: r * (layout.DSIZE + layout.GAP) + layout.GAP / 2 + side, pos: Math.random() * span, dir: Math.random() < 0.5 ? 1 : -1, spd: 0.4 + Math.random() * 0.4, color: PED_COLORS[(r + (side > 0 ? 2 : 3)) % PED_COLORS.length], gx: 0, gy: 0 });
+    // fountains at a few intersections
+    const fountains = [];
+    for (let c = 1; c < layout.cols && fountains.length < 4; c++) for (let r = 1; r < layout.rows && fountains.length < 4; r++) if ((c + r) % 2 === 0) fountains.push({ gx: c * (layout.DSIZE + layout.GAP) + layout.GAP / 2, gy: r * (layout.DSIZE + layout.GAP) + layout.GAP / 2 });
+    // sky life + weather
+    const balloon = { x: -140, y: 80, ph: 0 };
+    const birds = []; for (let i = 0; i < 7; i++) birds.push({ x: Math.random(), y: 38 + Math.random() * 90, ph: Math.random() * 6.28, spd: 0.02 + Math.random() * 0.02 });
+    const plane = { x: -0.2, y: 50 };
+    const drops = []; for (let i = 0; i < 260; i++) drops.push({ x: Math.random(), y: Math.random(), spd: 0.8 + Math.random() * 0.7 });
+    let flash = 0, boltTimer = 3, mmGeom = null;
+
+    function centerOn(gx, gy) { cam.ox = W / 2 - ((gx - gy) * TW / 2) * cam.zoom; cam.oy = H / 2 - ((gx + gy) * TH / 2) * cam.zoom; }
+    function drawPed(p) { const s = w2s(p.gx, p.gy), z = cam.zoom, st = Math.sin(clock * 8 + p.pos) * 0.7 * z; ctx.fillStyle = "rgba(15,18,24,0.45)"; ctx.beginPath(); ctx.ellipse(s[0], s[1], 2 * z, 1 * z, 0, 0, 6.28); ctx.fill(); ctx.fillStyle = p.color; ctx.fillRect(s[0] - 1.1 * z, s[1] - 5.2 * z + st, 2.2 * z, 3.2 * z); ctx.fillStyle = "#1c2230"; ctx.fillRect(s[0] - 1.1 * z, s[1] - 2.2 * z + st, 2.2 * z, 2.2 * z); ctx.fillStyle = "#e2b48c"; ctx.beginPath(); ctx.arc(s[0], s[1] - 6.3 * z + st, 1.4 * z, 0, 6.28); ctx.fill(); }
+    function drawFountain(f) {
+      const s = w2s(f.gx, f.gy), z = cam.zoom;
+      poly([w2s(f.gx - 0.5, f.gy - 0.5), w2s(f.gx + 0.5, f.gy - 0.5), w2s(f.gx + 0.5, f.gy + 0.5), w2s(f.gx - 0.5, f.gy + 0.5)], "#8a93a3");
+      poly([w2s(f.gx - 0.36, f.gy - 0.36), w2s(f.gx + 0.36, f.gy - 0.36), w2s(f.gx + 0.36, f.gy + 0.36), w2s(f.gx - 0.36, f.gy + 0.36)], "#3f86bf");
+      ctx.fillStyle = "rgba(195,230,255,0.85)";
+      for (let k = 0; k < 9; k++) { const t = (clock * 1.5 + k / 9) % 1, a = (k / 9) * 6.28; ctx.beginPath(); ctx.arc(s[0] + Math.cos(a) * (1 + t * 7) * z, s[1] - (16 - t * t * 18) * z, 1.3 * z, 0, 6.28); ctx.fill(); }
+      ctx.fillStyle = "#dff0ff"; ctx.fillRect(s[0] - 1 * z, s[1] - 16 * z, 2 * z, 16 * z);
+    }
+    function drawBalloon() {
+      const bx = balloon.x, by = balloon.y + Math.sin(balloon.ph) * 5;
+      ctx.fillStyle = "#e2574c"; ctx.beginPath(); ctx.ellipse(bx, by, 15, 18, 0, 0, 6.28); ctx.fill();
+      ctx.fillStyle = "#f5b301"; ctx.beginPath(); ctx.ellipse(bx, by, 5, 18, 0, 0, 6.28); ctx.fill();
+      ctx.strokeStyle = "rgba(0,0,0,0.3)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(bx - 6, by + 13); ctx.lineTo(bx - 3, by + 25); ctx.moveTo(bx + 6, by + 13); ctx.lineTo(bx + 3, by + 25); ctx.stroke();
+      ctx.fillStyle = "#7a5235"; ctx.fillRect(bx - 4, by + 24, 8, 5);
+    }
+    function drawMinimap() {
+      const mw = 138, mh = 100, mx = W - mw - 12, my = H - mh - 14, pad = 8;
+      ctx.fillStyle = "rgba(2,8,23,0.62)"; ctx.fillRect(mx, my, mw, mh);
+      const sc = Math.min((mw - pad * 2) / layout.extentX, (mh - pad * 2) / layout.extentY);
+      const m2 = (gx, gy) => [mx + pad + gx * sc, my + pad + gy * sc];
+      layout.plates.forEach(p => { const a = m2(p.gx, p.gy); ctx.fillStyle = BG_COLORS[p.bu] || "#9aa2b0"; ctx.fillRect(a[0], a[1], p.size * sc, p.size * sc); });
+      const inv = (px, py) => { const ix = (px - cam.ox) / cam.zoom, iy = (py - cam.oy) / cam.zoom; return [(ix / (TW / 2) + iy / (TH / 2)) / 2, (iy / (TH / 2) - ix / (TW / 2)) / 2]; };
+      const cs = [inv(0, 0), inv(W, 0), inv(W, H), inv(0, H)], gxs = cs.map(c => c[0]), gys = cs.map(c => c[1]);
+      const v0 = m2(Math.max(0, Math.min(...gxs)), Math.max(0, Math.min(...gys))), v1 = m2(Math.min(layout.extentX, Math.max(...gxs)), Math.min(layout.extentY, Math.max(...gys)));
+      ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = 1.5; ctx.strokeRect(v0[0], v0[1], v1[0] - v0[0], v1[1] - v0[1]);
+      ctx.fillStyle = "rgba(255,255,255,0.5)"; ctx.font = "9px 'DM Sans', sans-serif"; ctx.textAlign = "left"; ctx.fillText("map · click to jump", mx + 6, my - 4);
+      mmGeom = { mx, my, mw, mh, pad, sc };
+    }
+
     function frame(now) {
       const dt = Math.min(0.05, (now - last) / 1000); last = now; clock += dt;
       const tod = timeOfDay(), sky = skyState(tod), ang = sky.ang;
+      const rain = Math.max(0, Math.min(1, (Math.sin(Date.now() / 1000 * 0.045) - 0.42) / 0.5)); // slow weather cycle
       const grad = ctx.createLinearGradient(0, 0, 0, H); grad.addColorStop(0, sky.top); grad.addColorStop(1, sky.bot); ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+      if (rain > 0.02) { ctx.fillStyle = `rgba(70,80,96,${rain * 0.55})`; ctx.fillRect(0, 0, W, H); } // storm overcast
       const sunx = (0.5 - 0.46 * Math.cos(ang)) * W, suny = (0.62 - 0.5 * Math.sin(ang)) * H;
-      if (suny < H * 0.66) { ctx.save(); ctx.shadowColor = "#ffd66b"; ctx.shadowBlur = 34; ctx.fillStyle = "#fff2a8"; ctx.beginPath(); ctx.arc(sunx, suny, 16, 0, 6.28); ctx.fill(); ctx.restore(); }
-      for (let i = 0; i < 5; i++) { const cx = ((clock * (7 + i * 2) + i * 260) % (W + 240)) - 120, cy = 36 + i * 30; cloud(cx, cy, 16 + i * 4, 0.55 * sky.day + 0.06); }
+      if (suny < H * 0.66 && rain < 0.45) { ctx.save(); ctx.shadowColor = "#ffd66b"; ctx.shadowBlur = 34; ctx.fillStyle = "#fff2a8"; ctx.beginPath(); ctx.arc(sunx, suny, 16, 0, 6.28); ctx.fill(); ctx.restore(); }
+      balloon.x += dt * 9; if (balloon.x > W + 150) { balloon.x = -150; balloon.y = 55 + Math.random() * 70; } balloon.ph += dt; if (rain < 0.5) drawBalloon();
+      if (sky.day > 0.4 && rain < 0.4) { ctx.strokeStyle = "rgba(40,46,56,0.8)"; ctx.lineWidth = 1.4; birds.forEach(bd => { bd.x += bd.spd * dt; if (bd.x > 1.1) bd.x = -0.1; bd.ph += dt * 9; const bxp = bd.x * W, wy = Math.sin(bd.ph) * 2.5; ctx.beginPath(); ctx.moveTo(bxp - 5, bd.y + wy); ctx.lineTo(bxp, bd.y); ctx.lineTo(bxp + 5, bd.y + wy); ctx.stroke(); }); }
+      if (sky.night > 0.4) { plane.x += dt * 0.05; if (plane.x > 1.2) plane.x = -0.2; const pxp = plane.x * W; ctx.fillStyle = "#aeb6c4"; ctx.beginPath(); ctx.moveTo(pxp, plane.y); ctx.lineTo(pxp - 14, plane.y + 3); ctx.lineTo(pxp - 14, plane.y - 3); ctx.closePath(); ctx.fill(); ctx.fillStyle = Math.sin(clock * 6) > 0 ? "#ff5a5a" : "#601c1c"; ctx.beginPath(); ctx.arc(pxp - 14, plane.y, 1.6, 0, 6.28); ctx.fill(); }
+      for (let i = 0; i < 5; i++) { const cx = ((clock * (7 + i * 2) + i * 260) % (W + 240)) - 120, cy = 36 + i * 30; cloud(cx, cy, 16 + i * 4, 0.5 * sky.day + 0.06 + rain * 0.5); }
       plate(0, 0, span, "#8f9385"); // road base
       layout.plates.forEach(p => plate(p.gx, p.gy, p.size, "#bcd6a3")); // grass blocks
-      cars.forEach(c => { c.pos += c.dir * c.spd * dt; if (c.pos > span) c.pos = 0; else if (c.pos < 0) c.pos = span; c.gx = c.axis === "v" ? c.fixed : c.pos; c.gy = c.axis === "v" ? c.pos : c.fixed; });
+      const move = o => { o.pos += o.dir * o.spd * dt; if (o.pos > span) o.pos = 0; else if (o.pos < 0) o.pos = span; o.gx = o.axis === "v" ? o.fixed : o.pos; o.gy = o.axis === "v" ? o.pos : o.fixed; };
+      cars.forEach(move); peds.forEach(move);
       const items = [];
       sorted.forEach(({ b, i }) => items.push({ d: b.gx + b.gy, kind: "b", b, i }));
       layout.trees.forEach(gt => items.push({ d: gt.gx + gt.gy, kind: "t", g: gt }));
       cars.forEach(c => items.push({ d: c.gx + c.gy, kind: "c", c }));
+      peds.forEach(p => items.push({ d: p.gx + p.gy, kind: "p", p }));
+      fountains.forEach(f => items.push({ d: f.gx + f.gy, kind: "f", f }));
       layout.lamps.forEach(L => items.push({ d: L.gx + L.gy, kind: "l", L }));
       items.sort((p, q) => p.d - q.d);
       items.forEach(it => {
@@ -8099,6 +8153,8 @@ function CityOrgView() {
           it.b.people.forEach(pn => { pn.ang += pn.spd * dt; const px = it.b.gx + Math.cos(pn.ang) * pn.rad * 0.18, py = it.b.gy + Math.sin(pn.ang) * pn.rad * 0.18; const s = w2s(px, py); ctx.beginPath(); ctx.arc(s[0], s[1], Math.max(1, 1.6 * cam.zoom), 0, 6.28); ctx.fill(); });
         } else if (it.kind === "t") drawTree(it.g, clock);
         else if (it.kind === "l") drawLamp(it.L);
+        else if (it.kind === "p") drawPed(it.p);
+        else if (it.kind === "f") drawFountain(it.f);
         else drawCar(it.c);
       });
       ctx.textAlign = "center"; ctx.font = `${Math.max(10, Math.round(12 * Math.min(1.3, cam.zoom)))}px 'DM Sans', sans-serif`;
@@ -8119,6 +8175,16 @@ function CityOrgView() {
         ctx.restore();
       }
       if (hover >= 0) { const b = layout.buildings[hover], cc = w2s(b.gx, b.gy), ty = cc[1] - b.h * cam.zoom - 8; ctx.textAlign = "center"; ctx.font = "bold 12px 'DM Sans', sans-serif"; const lbl = `${b.name} · ${b.count}`, w = ctx.measureText(lbl).width + 12; ctx.fillStyle = "rgba(2,8,23,0.82)"; ctx.fillRect(cc[0] - w / 2, ty - 14, w, 18); ctx.fillStyle = "#fff"; ctx.fillText(lbl, cc[0], ty - 1); }
+      // rain + lightning
+      if (rain > 0.02) {
+        const n = Math.floor(drops.length * rain);
+        ctx.strokeStyle = `rgba(190,210,235,${0.35 + rain * 0.25})`; ctx.lineWidth = 1; ctx.beginPath();
+        for (let i = 0; i < n; i++) { const d = drops[i], yy = ((d.y + clock * d.spd) % 1) * H, xx = ((d.x + clock * 0.04) % 1) * W; ctx.moveTo(xx, yy); ctx.lineTo(xx - 5, yy + 13); }
+        ctx.stroke();
+        boltTimer -= dt; if (rain > 0.55 && boltTimer <= 0) { flash = 0.9; boltTimer = 2.5 + Math.random() * 5; }
+      }
+      if (flash > 0) { ctx.fillStyle = `rgba(222,232,255,${flash * 0.55})`; ctx.fillRect(0, 0, W, H); flash -= dt * 3; }
+      drawMinimap();
       drawClock(tod, sky);
       raf = requestAnimationFrame(frame);
     }
@@ -8133,7 +8199,13 @@ function CityOrgView() {
 
     // interaction
     let dragging = false, lx = 0, ly = 0, moved = false;
-    function onDown(e) { dragging = true; moved = false; lx = e.clientX; ly = e.clientY; canvas.style.cursor = "grabbing"; }
+    function onDown(e) {
+      const rect = canvas.getBoundingClientRect(), mxx = e.clientX - rect.left, myy = e.clientY - rect.top;
+      if (mmGeom && mxx >= mmGeom.mx && mxx <= mmGeom.mx + mmGeom.mw && myy >= mmGeom.my && myy <= mmGeom.my + mmGeom.mh) {
+        centerOn((mxx - mmGeom.mx - mmGeom.pad) / mmGeom.sc, (myy - mmGeom.my - mmGeom.pad) / mmGeom.sc); return; // jump via minimap
+      }
+      dragging = true; moved = false; lx = e.clientX; ly = e.clientY; canvas.style.cursor = "grabbing";
+    }
     function onMove(e) {
       const rect = canvas.getBoundingClientRect();
       if (dragging) { cam.ox += e.clientX - lx; cam.oy += e.clientY - ly; lx = e.clientX; ly = e.clientY; if (Math.abs(e.clientX) + Math.abs(e.clientY)) moved = true; return; }
