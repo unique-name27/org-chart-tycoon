@@ -7781,6 +7781,14 @@ function BuildingInterior({ building, onClose, onSelect }) {
     function w2s(gx, gy) { return [((gx - gy) * TW / 2) * cam.zoom + cam.ox, ((gx + gy) * TH / 2) * cam.zoom + cam.oy]; }
     function poly(pts, fill) { ctx.beginPath(); ctx.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]); ctx.closePath(); ctx.fillStyle = fill; ctx.fill(); }
     const up = (p, d) => [p[0], p[1] - d];
+    function shade(hex, fr) { const s = (hex || "#889").replace("#", ""); const n = s.length === 3 ? s.split("").map(x => x + x).join("") : s; const r = Math.min(255, Math.round(parseInt(n.slice(0, 2), 16) * fr)), g = Math.min(255, Math.round(parseInt(n.slice(2, 4), 16) * fr)), b = Math.min(255, Math.round(parseInt(n.slice(4, 6), 16) * fr)); return `rgb(${r},${g},${b})`; }
+    function box(cgx, cgy, hx, hy, b0, b1, color) { // iso box from height b0..b1 (px) with footprint hx,hy (tiles)
+      const A = w2s(cgx - hx, cgy - hy), B = w2s(cgx + hx, cgy - hy), C = w2s(cgx + hx, cgy + hy), D = w2s(cgx - hx, cgy + hy);
+      const lo = p => [p[0], p[1] - b0], hf = p => [p[0], p[1] - b1];
+      poly([lo(B), lo(C), hf(C), hf(B)], shade(color, 0.72));
+      poly([lo(D), lo(C), hf(C), hf(D)], shade(color, 0.55));
+      poly([hf(A), hf(B), hf(C), hf(D)], shade(color, 1.0));
+    }
     function fit() {
       const spanX = (cols + rows) * TW / 2, spanY = (cols + rows) * TH / 2 + WALLH;
       cam.zoom = Math.max(0.3, Math.min(2.2, Math.min((W * 0.82) / Math.max(1, spanX), (H * 0.7) / Math.max(1, spanY))));
@@ -7800,20 +7808,31 @@ function BuildingInterior({ building, onClose, onSelect }) {
       for (let g = 0; g < cols; g += 2) { const a = w2s(g, -0.5), b = w2s(g + 0.7, -0.5); poly([up(a, wh * 0.78), up(b, wh * 0.78), up(b, wh * 0.4), up(a, wh * 0.4)], "rgba(150,200,255,0.16)"); }
       for (let x = 0; x < cols; x++) for (let y = 0; y < rows; y++) poly([w2s(x - 0.5, y - 0.5), w2s(x + 0.5, y - 0.5), w2s(x + 0.5, y + 0.5), w2s(x - 0.5, y + 0.5)], (x + y) % 2 ? "#3a4150" : "#424a5b");
       desks.forEach((d, idx) => {
-        const s = w2s(d.gx, d.gy), z = cam.zoom;
-        poly([w2s(d.gx - 0.34, d.gy - 0.08), w2s(d.gx + 0.34, d.gy - 0.08), w2s(d.gx + 0.34, d.gy + 0.34), w2s(d.gx - 0.34, d.gy + 0.34)], "#6b4f33");
-        ctx.fillStyle = "rgba(0,0,0,0.28)"; ctx.beginPath(); ctx.ellipse(s[0], s[1], 7 * z, 3.4 * z, 0, 0, 6.28); ctx.fill();
+        const z = cam.zoom, deskH = 8 * z, seatH = 5.5 * z;
+        const pB = w2s(d.gx, d.gy + 0.06);   // person / chair base
+        const hT = w2s(d.gx, d.gy - 0.10);   // hands rest near desk front
+        ctx.fillStyle = "rgba(0,0,0,0.30)"; ctx.beginPath(); ctx.ellipse(pB[0], pB[1] + 2 * z, 9 * z, 4.2 * z, 0, 0, 6.28); ctx.fill();
+        box(d.gx, d.gy - 0.18, 0.30, 0.16, 0, deskH, "#7a5a3a"); // desk
+        box(d.gx, d.gy - 0.18, 0.35, 0.20, deskH - 1.5 * z, deskH, "#8a6a44"); // top slab
+        box(d.gx, d.gy - 0.26, 0.08, 0.04, deskH, deskH + 8 * z, "#15181f"); // monitor
+        { const ml = w2s(d.gx - 0.08, d.gy - 0.22), mr = w2s(d.gx + 0.08, d.gy - 0.22), fl = 0.6 + 0.4 * Math.abs(Math.sin(clock * 6 + d.bob));
+          poly([[ml[0], ml[1] - deskH - 1.5 * z], [mr[0], mr[1] - deskH - 1.5 * z], [mr[0], mr[1] - deskH - 7 * z], [ml[0], ml[1] - deskH - 7 * z]], `rgba(120,220,255,${fl})`); } // glowing screen
+        box(d.gx, d.gy + 0.0, 0.12, 0.05, seatH, seatH + 11 * z, "#3a4866"); // chair back
+        box(d.gx, d.gy + 0.06, 0.13, 0.13, 0, seatH, "#2f3a52"); // chair seat
         const senior = levelIndex(d.e.level) >= 6;
-        const bodyH = (senior ? 16 : 12) * z, bob = Math.sin(clock * 2 + d.bob) * 1.5 * z, bw = 6 * z;
-        ctx.fillStyle = FN_COLORS[d.e.fn] || building.color || "#6b9";
-        ctx.beginPath(); ctx.moveTo(s[0] - bw, s[1] - bob); ctx.lineTo(s[0] + bw, s[1] - bob); ctx.lineTo(s[0] + bw * 0.7, s[1] - bob - bodyH); ctx.lineTo(s[0] - bw * 0.7, s[1] - bob - bodyH); ctx.closePath(); ctx.fill();
-        ctx.fillStyle = d.skin; ctx.beginPath(); ctx.arc(s[0], s[1] - bob - bodyH - 4 * z, 4 * z, 0, 6.28); ctx.fill();
-        if (senior) { ctx.fillStyle = "#fde047"; ctx.fillRect(s[0] - 1 * z, s[1] - bob - bodyH, 2 * z, bodyH * 0.5); } // tie marks a lead
-        if (idx === hover) { ctx.strokeStyle = "#fde047"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(s[0], s[1] - bob - bodyH * 0.4, 12 * z, 0, 6.28); ctx.stroke(); }
+        const torso = (senior ? 13 : 11) * z, bw = 5.5 * z, color = FN_COLORS[d.e.fn] || building.color || "#6b9";
+        const topY = pB[1] - seatH - torso;
+        ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(pB[0] - bw, pB[1] - seatH); ctx.lineTo(pB[0] + bw, pB[1] - seatH); ctx.lineTo(pB[0] + bw * 0.65, topY); ctx.lineTo(pB[0] - bw * 0.65, topY); ctx.closePath(); ctx.fill(); // seated torso
+        const dip = Math.sin(clock * 9 + d.bob) * 1.6 * z, handY = hT[1] - deskH - 1 * z;
+        ctx.strokeStyle = shade(color, 0.8); ctx.lineWidth = 2.4 * z; ctx.lineCap = "round";
+        ctx.beginPath(); ctx.moveTo(pB[0] - bw * 0.7, topY + torso * 0.5); ctx.lineTo(pB[0] - 2.5 * z, handY + dip); ctx.moveTo(pB[0] + bw * 0.7, topY + torso * 0.5); ctx.lineTo(pB[0] + 2.5 * z, handY - dip); ctx.stroke(); // typing arms
+        ctx.fillStyle = d.skin; ctx.beginPath(); ctx.arc(pB[0], topY - 3.5 * z, 3.8 * z, 0, 6.28); ctx.fill(); // head
+        if (senior) { ctx.fillStyle = "#fde047"; ctx.fillRect(pB[0] - 1 * z, topY, 2 * z, torso * 0.45); } // tie marks a lead
+        if (idx === hover) { ctx.strokeStyle = "#fde047"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(pB[0], topY + torso * 0.3, 13 * z, 0, 6.28); ctx.stroke(); }
       });
       raf = requestAnimationFrame(frame);
     }
-    function pick(mx, my) { let best = -1, bd = 16 * cam.zoom; for (let i = 0; i < desks.length; i++) { const s = w2s(desks[i].gx, desks[i].gy); const dd = Math.hypot(mx - s[0], my - (s[1] - 9 * cam.zoom)); if (dd < bd) { bd = dd; best = i; } } return best; }
+    function pick(mx, my) { let best = -1, bd = 16 * cam.zoom; for (let i = 0; i < desks.length; i++) { const s = w2s(desks[i].gx, desks[i].gy + 0.06); const dd = Math.hypot(mx - s[0], my - (s[1] - 12 * cam.zoom)); if (dd < bd) { bd = dd; best = i; } } return best; }
     let dragging = false, lx = 0, ly = 0, moved = false;
     function onDown(e) { dragging = true; moved = false; lx = e.clientX; ly = e.clientY; canvas.style.cursor = "grabbing"; }
     function onMove(e) {
