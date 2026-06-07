@@ -7760,6 +7760,12 @@ function cityStyle(name) {
   if (/finance|\bhr\b|people|legal|\bit\b|security|corporate|strategy|exec|g&a|admin|talent/.test(s)) return "office";
   return "tower";
 }
+// A building silhouette, varied by team size, archetype, and a stable seed, for a diverse skyline.
+function cityShape(count, style, seed) {
+  if (count <= 4) return seed % 3 === 0 ? "house" : "box";
+  if (style === "lab") return seed % 2 ? "dome" : "cylinder";
+  return ["box", "cylinder", "stepped", "pyramid", "box", "stepped", "cylinder", "box"][seed % 8];
+}
 
 // ── Day/night helpers (shared by the city + interior) ──
 function hexRGB(h) { return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; }
@@ -7959,7 +7965,8 @@ function CityOrgView() {
         const ppl = [];
         const pc = Math.min(18, Math.max(1, Math.round(dp.count / 4)));
         for (let p = 0; p < pc; p++) ppl.push({ ang: Math.random() * 6.28, rad: foot * 0.55 + Math.random() * 0.8, spd: 0.4 + Math.random() });
-        buildings.push({ gx: bx, gy: by, foot, h, name: dp.name, count: dp.count, color, bu: dist.bu, top: dp.top, members: dp.members, style: cityStyle(dp.name), people: ppl, seed: (i * 17 + di * 7) % 100 });
+        const seed = (i * 17 + di * 7) % 100, style = cityStyle(dp.name);
+        buildings.push({ gx: bx, gy: by, foot, h, name: dp.name, count: dp.count, color, bu: dist.bu, top: dp.top, members: dp.members, style, shape: cityShape(dp.count, style, seed), people: ppl, seed });
         placed.push([bx, by]);
       });
       let attempts = 0, made = 0;
@@ -8019,18 +8026,44 @@ function CityOrgView() {
       }
     }
     function drawBuilding(b, hi, clock) {
-      const f = b.foot / 2, ht = b.h * cam.zoom, z = cam.zoom;
+      const f = b.foot / 2, ht = b.h * cam.zoom, z = cam.zoom, sp = b.shape || "box";
+      const cc = w2s(b.gx, b.gy);
       const A = w2s(b.gx - f, b.gy - f), B = w2s(b.gx + f, b.gy - f), C = w2s(b.gx + f, b.gy + f), D = w2s(b.gx - f, b.gy + f);
       const up = p => [p[0], p[1] - ht];
       ctx.save(); ctx.globalAlpha = 0.16; poly([w2s(b.gx - f, b.gy + f * 1.5), w2s(b.gx + f * 1.5, b.gy + f), w2s(b.gx + f, b.gy - f * 0.2), w2s(b.gx - f * 0.2, b.gy + f)], "#000"); ctx.restore();
-      poly([B, C, up(C), up(B)], shade(b.color, 0.72)); // right face
-      if (b.h > 16 && z > 0.4) windows(B, C, ht, b, 1);
-      poly([D, C, up(C), up(D)], shade(b.color, 0.55)); // left face
-      if (b.h > 16 && z > 0.4) windows(D, C, ht, b, 4);
-      poly([up(A), up(B), up(C), up(D)], shade(b.color, hi ? 1.18 : 1.0)); // roof
-      ctx.strokeStyle = hi ? "#fde047" : "rgba(0,0,0,0.18)"; ctx.lineWidth = hi ? 2.5 : 1; ctx.stroke();
-      // rooftop flair by building type
-      const cc = w2s(b.gx, b.gy), rx = cc[0], ry = cc[1] - ht;
+      const rxE = f * TW * z, ryE = f * TH * z;
+      if (sp === "cylinder" || sp === "dome") {
+        const bodyH = sp === "dome" ? ht * 0.55 : ht, top = cc[1] - bodyH;
+        poly([[cc[0] - rxE, cc[1]], [cc[0] + rxE, cc[1]], [cc[0] + rxE, top], [cc[0] - rxE, top]], shade(b.color, 0.7));
+        ctx.fillStyle = shade(b.color, 0.7); ctx.beginPath(); ctx.ellipse(cc[0], cc[1], rxE, ryE, 0, 0, Math.PI); ctx.fill();
+        if (z > 0.4 && bodyH > 16) { ctx.fillStyle = "rgba(255,231,150,0.5)"; const rr = Math.min(6, Math.round(bodyH / 16)); for (let r = 0; r < rr; r++) { const yy = cc[1] - (r + 0.5) / rr * bodyH; ctx.fillRect(cc[0] - rxE * 0.8, yy - 1.5 * z, rxE * 1.6, 1.6 * z); } }
+        ctx.fillStyle = shade(b.color, hi ? 1.18 : 1.04); ctx.beginPath(); ctx.ellipse(cc[0], top, rxE, ryE, 0, 0, 6.28); ctx.fill();
+        if (sp === "dome") { ctx.fillStyle = shade(b.color, 1.12); ctx.beginPath(); ctx.ellipse(cc[0], top, rxE, ht * 0.5, 0, Math.PI, 0); ctx.fill(); ctx.strokeStyle = "#dfe6ef"; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(cc[0], top - ht * 0.5); ctx.lineTo(cc[0], top - ht * 0.5 - 7 * z); ctx.stroke(); }
+        if (hi) { ctx.strokeStyle = "#fde047"; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(cc[0], top, rxE, ryE, 0, 0, 6.28); ctx.stroke(); }
+      } else if (sp === "pyramid") {
+        const apex = [cc[0], cc[1] - ht];
+        poly([B, C, apex], shade(b.color, 0.72)); poly([D, C, apex], shade(b.color, 0.55));
+        ctx.strokeStyle = hi ? "#fde047" : "rgba(0,0,0,0.2)"; ctx.lineWidth = hi ? 2 : 1; ctx.beginPath(); ctx.moveTo(C[0], C[1]); ctx.lineTo(apex[0], apex[1]); ctx.stroke();
+      } else if (sp === "house") {
+        poly([B, C, up(C), up(B)], shade(b.color, 0.74)); poly([D, C, up(C), up(D)], shade(b.color, 0.58)); poly([up(A), up(B), up(C), up(D)], shade(b.color, 1.0));
+        const apex = [cc[0], cc[1] - ht - 11 * z];
+        poly([up(B), up(C), apex], "#9a4b3b"); poly([up(D), up(C), apex], "#7e3b2e");
+        if (hi) { ctx.strokeStyle = "#fde047"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(up(B)[0], up(B)[1]); ctx.lineTo(apex[0], apex[1]); ctx.lineTo(up(D)[0], up(D)[1]); ctx.stroke(); }
+      } else if (sp === "stepped") {
+        const seg = (ff, h0, h1, fr) => { const A2 = w2s(b.gx - ff, b.gy - ff), B2 = w2s(b.gx + ff, b.gy - ff), C2 = w2s(b.gx + ff, b.gy + ff), D2 = w2s(b.gx - ff, b.gy + ff); const lo = p => [p[0], p[1] - h0], hf = p => [p[0], p[1] - h1]; poly([lo(B2), lo(C2), hf(C2), hf(B2)], shade(b.color, 0.72 * fr)); poly([lo(D2), lo(C2), hf(C2), hf(D2)], shade(b.color, 0.55 * fr)); poly([hf(A2), hf(B2), hf(C2), hf(D2)], shade(b.color, fr)); };
+        seg(f, 0, ht * 0.5, 1.0); seg(f * 0.72, ht * 0.5, ht * 0.8, 1.06); seg(f * 0.46, ht * 0.8, ht, 1.12);
+        if (b.h > 16 && z > 0.4) windows(B, C, ht * 0.5, b, 1);
+      } else { // box
+        poly([B, C, up(C), up(B)], shade(b.color, 0.72));
+        if (b.h > 16 && z > 0.4) windows(B, C, ht, b, 1);
+        poly([D, C, up(C), up(D)], shade(b.color, 0.55));
+        if (b.h > 16 && z > 0.4) windows(D, C, ht, b, 4);
+        poly([up(A), up(B), up(C), up(D)], shade(b.color, hi ? 1.18 : 1.0));
+        ctx.strokeStyle = hi ? "#fde047" : "rgba(0,0,0,0.18)"; ctx.lineWidth = hi ? 2.5 : 1; ctx.stroke();
+      }
+      // rooftop flair by building type (boxy silhouettes only)
+      if (sp !== "box" && sp !== "stepped") return;
+      const rx = cc[0], ry = cc[1] - ht;
       if (b.style === "tower") { ctx.strokeStyle = "#9aa3b2"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx, ry - 20 * z); ctx.stroke(); ctx.fillStyle = Math.sin(clock * 4) > 0 ? "#ff5a5a" : "#7a2222"; ctx.beginPath(); ctx.arc(rx, ry - 20 * z, 2.3 * z, 0, 6.28); ctx.fill(); }
       else if (b.style === "office") { ctx.fillStyle = "#8b95a6"; for (let k = 0; k < 3; k++) ctx.fillRect(rx - 9 * z + k * 7 * z, ry - 5 * z, 4.5 * z, 5 * z); }
       else if (b.style === "factory") { ctx.fillStyle = "#5b6270"; ctx.fillRect(rx + 3 * z, ry - 15 * z, 5 * z, 15 * z); for (let k = 0; k < 3; k++) { const tt = (clock * 0.5 + k * 0.5) % 1.5; ctx.fillStyle = `rgba(205,205,205,${0.32 * (1 - tt / 1.5)})`; ctx.beginPath(); ctx.arc(rx + 5.5 * z, ry - 17 * z - tt * 22 * z, (2 + tt * 3) * z, 0, 6.28); ctx.fill(); } }
@@ -8084,9 +8117,10 @@ function CityOrgView() {
     const peds = [];
     for (let c = 0; c <= layout.cols; c++) for (const side of [-0.6, 0.6]) peds.push({ axis: "v", fixed: c * (layout.DSIZE + layout.GAP) + layout.GAP / 2 + side, pos: Math.random() * span, dir: Math.random() < 0.5 ? 1 : -1, spd: 0.4 + Math.random() * 0.4, color: PED_COLORS[(c + (side > 0 ? 1 : 0)) % PED_COLORS.length], gx: 0, gy: 0 });
     for (let r = 0; r <= layout.rows; r++) for (const side of [-0.6, 0.6]) peds.push({ axis: "h", fixed: r * (layout.DSIZE + layout.GAP) + layout.GAP / 2 + side, pos: Math.random() * span, dir: Math.random() < 0.5 ? 1 : -1, spd: 0.4 + Math.random() * 0.4, color: PED_COLORS[(r + (side > 0 ? 2 : 3)) % PED_COLORS.length], gx: 0, gy: 0 });
-    // fountains at a few intersections
-    const fountains = [];
-    for (let c = 1; c < layout.cols && fountains.length < 4; c++) for (let r = 1; r < layout.rows && fountains.length < 4; r++) if ((c + r) % 2 === 0) fountains.push({ gx: c * (layout.DSIZE + layout.GAP) + layout.GAP / 2, gy: r * (layout.DSIZE + layout.GAP) + layout.GAP / 2 });
+    // landmarks at street intersections: one stadium, one park, the rest fountains
+    const inter = [];
+    for (let c = 1; c < layout.cols; c++) for (let r = 1; r < layout.rows; r++) inter.push({ gx: c * (layout.DSIZE + layout.GAP) + layout.GAP / 2, gy: r * (layout.DSIZE + layout.GAP) + layout.GAP / 2 });
+    const stadium = inter[0] || null, park = inter[1] || null, fountains = inter.slice(2, 5);
     // sky life + weather
     const balloon = { x: -140, y: 80, ph: 0 };
     const birds = []; for (let i = 0; i < 7; i++) birds.push({ x: Math.random(), y: 38 + Math.random() * 90, ph: Math.random() * 6.28, spd: 0.02 + Math.random() * 0.02 });
@@ -8103,6 +8137,21 @@ function CityOrgView() {
       ctx.fillStyle = "rgba(195,230,255,0.85)";
       for (let k = 0; k < 9; k++) { const t = (clock * 1.5 + k / 9) % 1, a = (k / 9) * 6.28; ctx.beginPath(); ctx.arc(s[0] + Math.cos(a) * (1 + t * 7) * z, s[1] - (16 - t * t * 18) * z, 1.3 * z, 0, 6.28); ctx.fill(); }
       ctx.fillStyle = "#dff0ff"; ctx.fillRect(s[0] - 1 * z, s[1] - 16 * z, 2 * z, 16 * z);
+    }
+    function drawStadium(st) {
+      const c = w2s(st.gx, st.gy), z = cam.zoom, RX = 1.7 * TW / 2 * z, RY = 1.7 * TH / 2 * z, wallH = 15 * z;
+      poly([[c[0] - RX, c[1]], [c[0] + RX, c[1]], [c[0] + RX, c[1] - wallH], [c[0] - RX, c[1] - wallH]], "#6f7785");
+      ctx.fillStyle = "#6f7785"; ctx.beginPath(); ctx.ellipse(c[0], c[1], RX, RY, 0, 0, Math.PI); ctx.fill();
+      ctx.fillStyle = "#aab2bf"; ctx.beginPath(); ctx.ellipse(c[0], c[1] - wallH, RX, RY, 0, 0, 6.28); ctx.fill();
+      ctx.fillStyle = "#8b94a3"; ctx.beginPath(); ctx.ellipse(c[0], c[1] - wallH, RX * 0.86, RY * 0.86, 0, 0, 6.28); ctx.fill();
+      ctx.fillStyle = "#3f9d4a"; ctx.beginPath(); ctx.ellipse(c[0], c[1] - wallH, RX * 0.6, RY * 0.6, 0, 0, 6.28); ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.65)"; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.ellipse(c[0], c[1] - wallH, RX * 0.2, RY * 0.2, 0, 0, 6.28); ctx.stroke(); ctx.beginPath(); ctx.moveTo(c[0] - RX * 0.6, c[1] - wallH); ctx.lineTo(c[0] + RX * 0.6, c[1] - wallH); ctx.stroke();
+      [[-0.8, -0.8], [0.8, -0.8], [0.8, 0.8], [-0.8, 0.8]].forEach(([dx, dy]) => { const p = w2s(st.gx + dx, st.gy + dy); ctx.strokeStyle = "#444b55"; ctx.lineWidth = 1.5 * z; ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(p[0], p[1] - 26 * z); ctx.stroke(); ctx.fillStyle = "#fffbe0"; ctx.fillRect(p[0] - 3 * z, p[1] - 30 * z, 6 * z, 4 * z); });
+    }
+    function drawPark(pk) {
+      poly([w2s(pk.gx - 0.9, pk.gy - 0.9), w2s(pk.gx + 0.9, pk.gy - 0.9), w2s(pk.gx + 0.9, pk.gy + 0.9), w2s(pk.gx - 0.9, pk.gy + 0.9)], "#86bd6b");
+      poly([w2s(pk.gx - 0.5, pk.gy - 0.5), w2s(pk.gx + 0.55, pk.gy - 0.2), w2s(pk.gx + 0.3, pk.gy + 0.5), w2s(pk.gx - 0.45, pk.gy + 0.25)], "#4a90c2");
+      [[-0.6, -0.6], [0.65, -0.5], [0.6, 0.6], [-0.55, 0.6], [0, -0.72]].forEach(([dx, dy]) => drawTree({ gx: pk.gx + dx, gy: pk.gy + dy }, clock));
     }
     function drawBalloon() {
       const bx = balloon.x, by = balloon.y + Math.sin(balloon.ph) * 5;
@@ -8147,6 +8196,8 @@ function CityOrgView() {
       cars.forEach(c => items.push({ d: c.gx + c.gy, kind: "c", c }));
       peds.forEach(p => items.push({ d: p.gx + p.gy, kind: "p", p }));
       fountains.forEach(f => items.push({ d: f.gx + f.gy, kind: "f", f }));
+      if (stadium) items.push({ d: stadium.gx + stadium.gy - 0.5, kind: "S", s: stadium });
+      if (park) items.push({ d: park.gx + park.gy - 0.5, kind: "K", p: park });
       layout.lamps.forEach(L => items.push({ d: L.gx + L.gy, kind: "l", L }));
       items.sort((p, q) => p.d - q.d);
       items.forEach(it => {
@@ -8158,6 +8209,8 @@ function CityOrgView() {
         else if (it.kind === "l") drawLamp(it.L);
         else if (it.kind === "p") drawPed(it.p);
         else if (it.kind === "f") drawFountain(it.f);
+        else if (it.kind === "S") drawStadium(it.s);
+        else if (it.kind === "K") drawPark(it.p);
         else drawCar(it.c);
       });
       // night: darken everything (multiply), then paint warm lights on top
