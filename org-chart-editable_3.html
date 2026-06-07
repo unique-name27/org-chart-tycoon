@@ -7819,17 +7819,22 @@ function BuildingInterior({ building, onClose, onSelect }) {
     // ── floor plan: a north strip of named rooms + clustered desk pods below ──
     const ZONE = 3.4, PODW = 3.4, nStaff = staff.length;
     const podN = Math.max(1, Math.ceil(nStaff / 4)), podCols = Math.max(1, Math.round(Math.sqrt(podN * 1.7))), podRows = Math.ceil(podN / podCols), workW = podCols * PODW;
-    const haveMeet = nStaff >= 6, haveBreak = nStaff >= 9, haveLounge = nStaff >= 14;
+    // is this an engineering / technical team? (drives lab + server room vs offices)
+    const ENG_KW = /eng|verif|emul|silicon|hardware|software|firmware|rtl|asic|fpga|\blab\b|research|r&d|\bml\b|\bai\b|platform|infra|\bqa\b|\btest\b|devops|cloud|systems|robot|mechanical|electrical|physics|chip|semiconductor/i;
+    let engN = 0; all.forEach(m => { if (ENG_KW.test((m.fn || "") + " " + (m.title || "") + " " + (m.bucket || ""))) engN++; });
+    const isEng = building.style === "lab" || building.style === "factory" || ENG_KW.test(building.name || "") || (all.length > 0 && engN >= all.length * 0.4);
     const rooms = []; let rxc = 0;
-    rooms.push({ kind: "office", x0: 0, y0: 0, x1: 3, y1: ZONE }); rxc = 3.3;
-    if (haveMeet) { rooms.push({ kind: "meet", x0: rxc, y0: 0, x1: rxc + 4, y1: ZONE }); rxc += 4.3; }
-    if (haveBreak) { rooms.push({ kind: "break", x0: rxc, y0: 0, x1: rxc + 4, y1: ZONE }); rxc += 4.3; }
-    if (haveLounge) { rooms.push({ kind: "lounge", x0: rxc, y0: 0, x1: rxc + 3.4, y1: ZONE }); rxc += 3.7; }
-    const office = rooms.find(r => r.kind === "office"), meet = rooms.find(r => r.kind === "meet"), brk = rooms.find(r => r.kind === "break"), lounge = rooms.find(r => r.kind === "lounge");
+    const addRoom = (kind, w) => { rooms.push({ kind, x0: rxc, y0: 0, x1: rxc + w, y1: ZONE }); rxc += w + 0.3; };
+    addRoom("office", 3);
+    if (isEng) { addRoom("server", 3); if (nStaff >= 6) addRoom("lab", 4.2); if (nStaff >= 8) addRoom("meet", 4); if (nStaff >= 11) addRoom("break", 4); }
+    else { if (nStaff >= 6) addRoom("meet", 4); if (nStaff >= 8) addRoom("priv", 3.4); if (nStaff >= 11) addRoom("break", 4); if (nStaff >= 15) addRoom("lounge", 3.4); }
+    const office = rooms.find(r => r.kind === "office"), meet = rooms.find(r => r.kind === "meet"), brk = rooms.find(r => r.kind === "break"), lounge = rooms.find(r => r.kind === "lounge"), server = rooms.find(r => r.kind === "server"), lab = rooms.find(r => r.kind === "lab"), priv = rooms.find(r => r.kind === "priv");
+    const serverSpot = server ? { gx: (server.x0 + server.x1) / 2, gy: server.y1 - 0.8 } : null, labSpot = lab ? { gx: lab.x0 + 1.0, gy: lab.y1 - 1.0 } : null;
     const FW = Math.max(workW, rxc - 0.3, 6), FH = ZONE + podRows * PODW + 0.6;
     const mcx = meet ? (meet.x0 + meet.x1) / 2 : 0, mcy = meet ? (meet.y0 + meet.y1) / 2 + 0.1 : 0;
     const mseats = meet ? [[-1.15, 0], [1.15, 0], [-0.6, -0.7], [0.6, -0.7], [-0.6, 0.7], [0.6, 0.7]].map(([dx, dy]) => ({ gx: mcx + dx, gy: mcy + dy })) : [];
     const coffeeSpot = brk ? { gx: brk.x0 + 1.5, gy: brk.y0 + 1.1 } : { gx: 0, gy: ZONE };
+    const errands = []; if (brk) errands.push({ gx: coffeeSpot.gx, gy: coffeeSpot.gy, ic: "☕" }); if (serverSpot) errands.push({ gx: serverSpot.gx, gy: serverSpot.gy, ic: "🔧" }); if (labSpot) errands.push({ gx: labSpot.gx, gy: labSpot.gy, ic: "🔬" });
     // staff home desks, clustered in pods of 4 with walking aisles between
     const desks = staff.map((e, i) => {
       const p = Math.floor(i / 4), sub = i % 4, col = p % podCols, row = Math.floor(p / podCols);
@@ -7847,6 +7852,11 @@ function BuildingInterior({ building, onClose, onSelect }) {
     if (meet) { furn.push({ gx: mcx, gy: mcy, kind: "conftable" }); furn.push({ gx: mcx, gy: meet.y0 + 0.2, kind: "screen" }); }
     if (brk) { furn.push({ gx: (brk.x0 + brk.x1) / 2, gy: brk.y0 + 0.35, kind: "counter", r: brk }); furn.push({ gx: brk.x0 + 0.5, gy: brk.y0 + 0.5, kind: "fridge" }); furn.push({ gx: brk.x0 + 1.5, gy: brk.y0 + 0.5, kind: "coffee" }); furn.push({ gx: brk.x0 + 1.1, gy: brk.y1 - 0.9, kind: "rtable" }); furn.push({ gx: brk.x0 + 2.8, gy: brk.y1 - 0.9, kind: "rtable" }); }
     if (lounge) { const lcx = (lounge.x0 + lounge.x1) / 2; furn.push({ gx: lcx, gy: lounge.y0 + 0.8, kind: "couch" }); furn.push({ gx: lcx, gy: lounge.y0 + 1.6, kind: "ctable" }); furn.push({ gx: lounge.x1 - 0.4, gy: lounge.y1 - 0.4, kind: "plant" }); }
+    if (server) { for (let i = 0; i < 3; i++) furn.push({ gx: server.x0 + 0.6 + i * 0.75, gy: server.y0 + 0.5, kind: "rack", seed: i * 7 + 1 }); furn.push({ gx: server.x1 - 0.5, gy: server.y1 - 0.7, kind: "rack", seed: 5 }); }
+    if (lab) { furn.push({ gx: lab.x0 + 1.0, gy: lab.y0 + 0.6, kind: "bench", seed: 1 }); furn.push({ gx: lab.x0 + 2.6, gy: lab.y0 + 0.6, kind: "bench", seed: 2 }); furn.push({ gx: lab.x0 + 1.8, gy: lab.y1 - 0.8, kind: "bench", seed: 3 }); }
+    if (priv) { furn.push({ gx: priv.x0 + 0.8, gy: priv.y0 + 0.9, kind: "privdesk" }); furn.push({ gx: priv.x1 - 0.8, gy: priv.y0 + 0.9, kind: "privdesk" }); furn.push({ gx: priv.x1 - 0.5, gy: priv.y1 - 0.5, kind: "plant" }); }
+    const boards = []; const mkBoard = (r, frac) => { if (!r) return; const bw = (r.x1 - r.x0) * frac, cx = (r.x0 + r.x1) / 2; boards.push({ x0: cx - bw / 2, x1: cx + bw / 2, scr: genScribbles() }); };
+    mkBoard(meet, 0.6); if (isEng) mkBoard(lab, 0.5);
     furn.push({ gx: -0.3, gy: ZONE + 0.4, kind: "cooler" });
     furn.push({ gx: FW - 0.5, gy: ZONE + 0.4, kind: "plant" });
     if (podCols >= 2 && nStaff >= 6) furn.push({ gx: workW - 0.6, gy: ZONE + 1.6, kind: "printer" });
@@ -7865,7 +7875,7 @@ function BuildingInterior({ building, onClose, onSelect }) {
     function tile(gx, gy, c) { poly([w2s(gx - 0.5, gy - 0.5), w2s(gx + 0.5, gy - 0.5), w2s(gx + 0.5, gy + 0.5), w2s(gx - 0.5, gy + 0.5)], c); }
     function zoneAt(gx, gy) { for (const r of rooms) if (gx >= r.x0 - 0.5 && gx <= r.x1 - 0.5 && gy >= r.y0 - 0.5 && gy <= r.y1 - 0.5) return r.kind; return "work"; }
     function drawHair(hx, hy, w, z) { if (w.bald) return; ctx.fillStyle = w.hair; ctx.beginPath(); ctx.arc(hx, hy - 1.1 * z, 3.95 * z, Math.PI * 1.02, Math.PI * 1.98); ctx.fill(); }
-    function statusIcon(w, x, y, z) { if (z < 0.55) return; let ic = ""; if (w.state === "coffee") ic = "☕"; else if (w.state === "chat") ic = "💬"; else if (w.state === "sit" && meeting.presenter === w) ic = "📊"; else if (w.idea && w.state === "work") ic = "💡"; if (!ic) return; ctx.font = `${9 * z}px sans-serif`; ctx.textAlign = "center"; ctx.fillText(ic, x, y); }
+    function statusIcon(w, x, y, z) { if (z < 0.55) return; let ic = ""; if (w.state === "errand") ic = w.errIc || "☕"; else if (w.state === "chat") ic = "💬"; else if (w.state === "sit" && meeting.presenter === w) ic = "📊"; else if (w.idea && w.state === "work") ic = "💡"; if (!ic) return; ctx.font = `${9 * z}px sans-serif`; ctx.textAlign = "center"; ctx.fillText(ic, x, y); }
     function nameTag(w, sx, sy, z) { if (z < 1.2) return; const nm = `${w.e.first} ${(w.e.last || "")[0] || ""}.`; ctx.textAlign = "center"; ctx.font = `${5.5 * z}px 'DM Sans', sans-serif`; const pw = ctx.measureText(nm).width + 4 * z; ctx.fillStyle = "rgba(2,8,23,0.72)"; ctx.fillRect(sx - pw / 2, sy + 4 * z, pw, 8 * z); ctx.fillStyle = "#dbe7ff"; ctx.fillText(nm, sx, sy + 10 * z); }
     function drawWorker(w, hi) {
       const z = cam.zoom, color = FN_COLORS[w.e.fn] || building.color || "#6b9", seated = w.state === "work" || w.state === "sit";
@@ -7887,7 +7897,7 @@ function BuildingInterior({ building, onClose, onSelect }) {
         ctx.beginPath(); ctx.moveTo(base[0] - 1.5 * z, hipY); ctx.lineTo(base[0] - 1.5 * z + stride, base[1]); ctx.moveTo(base[0] + 1.5 * z, hipY); ctx.lineTo(base[0] + 1.5 * z - stride, base[1]); ctx.stroke();
         ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(base[0] - bw, hipY); ctx.lineTo(base[0] + bw, hipY); ctx.lineTo(base[0] + bw * 0.7, topY); ctx.lineTo(base[0] - bw * 0.7, topY); ctx.closePath(); ctx.fill();
         ctx.strokeStyle = shade(color, 0.85); ctx.lineWidth = 2.4 * z;
-        if (w.state === "coffee") { ctx.beginPath(); ctx.moveTo(base[0] + bw * 0.6, topY + torso * 0.4); ctx.lineTo(base[0] + 5 * z, topY + torso * 0.62); ctx.stroke(); ctx.fillStyle = "#fff"; ctx.fillRect(base[0] + 3.6 * z, topY + torso * 0.55, 3 * z, 4 * z); }
+        if (w.state === "errand") { ctx.beginPath(); ctx.moveTo(base[0] + bw * 0.6, topY + torso * 0.4); ctx.lineTo(base[0] + 5 * z, topY + torso * 0.62); ctx.stroke(); if (w.errIc === "☕") { ctx.fillStyle = "#fff"; ctx.fillRect(base[0] + 3.6 * z, topY + torso * 0.55, 3 * z, 4 * z); } }
         else { const sw = stride * 0.6; ctx.beginPath(); ctx.moveTo(base[0] - bw * 0.7, topY + torso * 0.3); ctx.lineTo(base[0] - bw * 0.85 - sw, hipY + 1 * z); ctx.moveTo(base[0] + bw * 0.7, topY + torso * 0.3); ctx.lineTo(base[0] + bw * 0.85 + sw, hipY + 1 * z); ctx.stroke(); }
         ctx.fillStyle = w.skin; ctx.beginPath(); ctx.arc(base[0], topY - 4 * z, 3.8 * z, 0, 6.28); ctx.fill(); drawHair(base[0], topY - 4 * z, w, z);
         if (w.senior) { ctx.fillStyle = "#fde047"; ctx.fillRect(base[0] - 1 * z, topY, 2 * z, torso * 0.4); }
@@ -7946,13 +7956,25 @@ function BuildingInterior({ building, onClose, onSelect }) {
         ctx.fillStyle = "rgba(255,255,255,0.85)"; ctx.fillRect((a[0] + b[0]) / 2 - 10 * z, a[1] - 24 * z, 20 * z, 2 * z); ctx.fillRect((a[0] + b[0]) / 2 - 7 * z, a[1] - 20 * z, 14 * z, 2 * z);
       } else if (f.kind === "printer") {
         box(f.gx, f.gy, 0.14, 0.12, 0, 11 * z, "#3a4150"); box(f.gx, f.gy, 0.15, 0.13, 11 * z, 13 * z, "#525b6c"); const pc = w2s(f.gx, f.gy - 0.1); ctx.fillStyle = "#e8edf2"; ctx.fillRect(pc[0] - 2 * z, pc[1] - 13 * z, 4 * z, 3 * z);
+      } else if (f.kind === "rack") {
+        box(f.gx, f.gy, 0.16, 0.14, 0, 26 * z, "#20262f"); box(f.gx, f.gy, 0.17, 0.15, 26 * z, 28 * z, "#2b323d");
+        const c = w2s(f.gx, f.gy + 0.14); for (let r = 0; r < 8; r++) for (let cc = 0; cc < 2; cc++) { const on = Math.sin(clock * (3 + (r + cc + f.seed) % 5) + r * 1.7 + cc * 2) > 0; ctx.fillStyle = on ? (((r + cc) % 3) ? "#46e07a" : "#ffcf4d") : "#173024"; ctx.fillRect(c[0] - 5 * z + cc * 6 * z, c[1] - 9 * z - r * 2.7 * z, 2.4 * z, 1.6 * z); }
+      } else if (f.kind === "bench") {
+        const bh = 8 * z; box(f.gx, f.gy, 0.42, 0.18, 0, bh, "#8a9099"); box(f.gx, f.gy, 0.46, 0.22, bh - 1.5 * z, bh, "#aeb6bf");
+        const o = w2s(f.gx - 0.22, f.gy - 0.04); box(f.gx - 0.22, f.gy - 0.04, 0.08, 0.05, bh, bh + 9 * z, "#22282f"); ctx.strokeStyle = "#46e07a"; ctx.lineWidth = 1.2 * z; ctx.beginPath(); for (let i = 0; i <= 10; i++) { const xx = o[0] - 3 * z + i * 0.6 * z, yy = o[1] - bh - 4 * z + Math.sin(clock * 4 + i + f.seed) * 2 * z; i ? ctx.lineTo(xx, yy) : ctx.moveTo(xx, yy); } ctx.stroke();
+        const d = w2s(f.gx + 0.18, f.gy - 0.02); box(f.gx + 0.18, f.gy - 0.02, 0.07, 0.05, bh, bh + 5 * z, "#3a4658"); ctx.fillStyle = Math.sin(clock * 5 + f.seed) > 0 ? "#ff5a5a" : "#5a2222"; ctx.beginPath(); ctx.arc(d[0], d[1] - bh - 4 * z, 1.3 * z, 0, 6.28); ctx.fill();
+        const si = w2s(f.gx, f.gy + 0.05); ctx.fillStyle = "rgba(255,140,60,0.85)"; ctx.beginPath(); ctx.arc(si[0], si[1] - bh, 1.2 * z, 0, 6.28); ctx.fill();
+        box(f.gx, f.gy + 0.3, 0.07, 0.07, 0, 6 * z, "#444b55");
+      } else if (f.kind === "privdesk") {
+        const dh = 8 * z; box(f.gx, f.gy - 0.12, 0.26, 0.14, 0, dh, "#6e4f33"); box(f.gx, f.gy - 0.12, 0.30, 0.17, dh - 1.5 * z, dh, "#7d5b3c");
+        box(f.gx, f.gy - 0.18, 0.07, 0.04, dh, dh + 7 * z, "#15181f"); chairAt(f.gx, f.gy, z, true);
       }
     }
     function goTo(w, tgt, after, dwell) { w.tx = tgt.gx; w.ty = tgt.gy; w.state = "walk"; w.after = after; w.dwell = dwell; }
     function goHome(w) { w.tx = w.home.gx; w.ty = w.home.gy; w.state = "walk"; w.after = "return"; }
     function chooseNext(w) {
       const r = Math.random();
-      if (brk && r < 0.16) goTo(w, coffeeSpot, "coffee", 2.5 + Math.random() * 3);
+      if (errands.length && r < 0.24) { const er = errands[Math.floor(Math.random() * errands.length)]; w.errIc = er.ic; goTo(w, er, "errand", 2.5 + Math.random() * 3); }
       else if (r < 0.30 && desks.length > 1) { const o = desks[Math.floor(Math.random() * desks.length)]; w.chatWith = o; goTo(w, { gx: o.gx + 0.5, gy: o.gy + 0.5 }, "chat", 2.5 + Math.random() * 3); }
       else { w.state = "work"; w.t = 4 + Math.random() * 7; w.x = w.home.gx; w.y = w.home.gy; w.idea = Math.random() < 0.25; }
     }
@@ -7963,7 +7985,7 @@ function BuildingInterior({ building, onClose, onSelect }) {
         return;
       }
       if (w.state === "sit") return;
-      if (w.state === "coffee" || w.state === "chat") { w.t -= dt; if (w.t <= 0) { w.chatWith = null; goHome(w); } return; }
+      if (w.state === "errand" || w.state === "chat") { w.t -= dt; if (w.t <= 0) { w.chatWith = null; goHome(w); } return; }
       if (w.state === "return") { w.state = "work"; w.t = 3 + Math.random() * 6; w.x = w.home.gx; w.y = w.home.gy; return; }
       if (!w.inMeeting) { w.t -= dt; if (w.t <= 0) chooseNext(w); }
       if (w.state === "work") { w.x = w.home.gx; w.y = w.home.gy; }
@@ -7979,6 +8001,35 @@ function BuildingInterior({ building, onClose, onSelect }) {
         meeting.roster.forEach(w => { w.inMeeting = false; goHome(w); }); meeting.roster = []; meeting.presenter = null; meeting.active = false; meeting.t = 12 + Math.random() * 14;
       }
     }
+    function genScribbles() {
+      const out = [];
+      out.push({ t: "rect", x: 0.08, y: 0.3, w: 0.16, h: 0.2, c: "#2d6cdf" });
+      out.push({ t: "rect", x: 0.42, y: 0.3, w: 0.16, h: 0.2, c: "#2d6cdf" });
+      out.push({ t: "arrow", x1: 0.24, y1: 0.4, x2: 0.42, y2: 0.4, c: "#1b2330" });
+      out.push({ t: "arrow", x1: 0.58, y1: 0.4, x2: 0.74, y2: 0.32 + Math.random() * 0.16, c: "#1b2330" });
+      out.push({ t: "wave", x: 0.62, y: 0.74, w: 0.3, a: 0.05 + Math.random() * 0.04, c: "#cc3b3b" });
+      for (let i = 0; i < 3; i++) { const yy = 0.6 + i * 0.1; out.push({ t: "dot", x: 0.1, y: yy, c: "#1b2330" }); out.push({ t: "line", x1: 0.14, y1: yy, x2: 0.32 + Math.random() * 0.12, y2: yy, c: "#1b2330" }); }
+      out.push({ t: "tri", x: 0.78, y: 0.12, s: 0.13, c: "#2a9d5b" });
+      return out;
+    }
+    function drawBoards() {
+      const z = cam.zoom, wh = WALLH * z; if (z < 0.32) return;
+      boards.forEach(bd => {
+        const vLo = wh * 0.42, vHi = wh * 0.82, map = (u, y) => { const p = w2s(bd.x0 + u * (bd.x1 - bd.x0), -0.5); return [p[0], p[1] - (vLo + (1 - y) * (vHi - vLo))]; };
+        const c0 = map(0, 0), c1 = map(1, 0), c2 = map(1, 1), c3 = map(0, 1);
+        poly([c0, c1, c2, c3], "#eef2f5"); ctx.strokeStyle = "#9aa6b2"; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(c0[0], c0[1]); ctx.lineTo(c1[0], c1[1]); ctx.lineTo(c2[0], c2[1]); ctx.lineTo(c3[0], c3[1]); ctx.closePath(); ctx.stroke();
+        if (z < 0.5) return;
+        bd.scr.forEach(s => {
+          ctx.strokeStyle = s.c; ctx.fillStyle = s.c; ctx.lineWidth = 1.3 * z; ctx.lineCap = "round";
+          if (s.t === "rect") { const p = [map(s.x, s.y), map(s.x + s.w, s.y), map(s.x + s.w, s.y + s.h), map(s.x, s.y + s.h)]; ctx.beginPath(); ctx.moveTo(p[0][0], p[0][1]); for (let i = 1; i < 4; i++) ctx.lineTo(p[i][0], p[i][1]); ctx.closePath(); ctx.stroke(); }
+          else if (s.t === "line") { const a = map(s.x1, s.y1), b = map(s.x2, s.y2); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+          else if (s.t === "arrow") { const a = map(s.x1, s.y1), b = map(s.x2, s.y2); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); const ang = Math.atan2(b[1] - a[1], b[0] - a[0]); ctx.beginPath(); ctx.moveTo(b[0], b[1]); ctx.lineTo(b[0] - Math.cos(ang - 0.4) * 4 * z, b[1] - Math.sin(ang - 0.4) * 4 * z); ctx.moveTo(b[0], b[1]); ctx.lineTo(b[0] - Math.cos(ang + 0.4) * 4 * z, b[1] - Math.sin(ang + 0.4) * 4 * z); ctx.stroke(); }
+          else if (s.t === "wave") { ctx.beginPath(); for (let i = 0; i <= 16; i++) { const p = map(s.x + (i / 16) * s.w, s.y + Math.sin(i * 0.8) * s.a); i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); } ctx.stroke(); }
+          else if (s.t === "dot") { const p = map(s.x, s.y); ctx.beginPath(); ctx.arc(p[0], p[1], 1.4 * z, 0, 6.28); ctx.fill(); }
+          else if (s.t === "tri") { const p = [map(s.x, s.y + s.s), map(s.x + s.s, s.y + s.s), map(s.x + s.s / 2, s.y)]; ctx.beginPath(); ctx.moveTo(p[0][0], p[0][1]); ctx.lineTo(p[1][0], p[1][1]); ctx.lineTo(p[2][0], p[2][1]); ctx.closePath(); ctx.stroke(); }
+        });
+      });
+    }
     function fit() {
       const spanX = (FW + FH) * TW / 2, spanY = (FW + FH) * TH / 2 + WALLH + 30;
       cam.zoom = Math.max(0.28, Math.min(2.4, Math.min((W * 0.92) / Math.max(1, spanX), (H * 0.8) / Math.max(1, spanY))));
@@ -7992,12 +8043,14 @@ function BuildingInterior({ building, onClose, onSelect }) {
       const tod = timeOfDay(), sky = skyState(tod), z = cam.zoom, wh = WALLH * z;
       workers.forEach(w => updWorker(w, dt)); updMeeting(dt);
       ctx.fillStyle = "#0e1018"; ctx.fillRect(0, 0, W, H);
-      for (let x = 0; x < Math.ceil(FW); x++) for (let y = 0; y < Math.ceil(FH); y++) { const zk = zoneAt(x, y); let c; if (zk === "office") c = (x + y) % 2 ? "#544066" : "#5b4a6e"; else if (zk === "meet") c = (x + y) % 2 ? "#39506e" : "#3f5a7a"; else if (zk === "break") c = (x + y) % 2 ? "#646b78" : "#6c7480"; else if (zk === "lounge") c = (x + y) % 2 ? "#6f5446" : "#7a5a4a"; else c = (x + y) % 2 ? "#3a4150" : "#424a5b"; tile(x, y, c); }
+      for (let x = 0; x < Math.ceil(FW); x++) for (let y = 0; y < Math.ceil(FH); y++) { const zk = zoneAt(x, y); let c; if (zk === "office") c = (x + y) % 2 ? "#544066" : "#5b4a6e"; else if (zk === "meet") c = (x + y) % 2 ? "#39506e" : "#3f5a7a"; else if (zk === "break") c = (x + y) % 2 ? "#646b78" : "#6c7480"; else if (zk === "lounge") c = (x + y) % 2 ? "#6f5446" : "#7a5a4a"; else if (zk === "server") c = (x + y) % 2 ? "#1f2a3a" : "#243043"; else if (zk === "lab") c = (x + y) % 2 ? "#ccd5dc" : "#d6dee4"; else if (zk === "priv") c = (x + y) % 2 ? "#5a4e44" : "#63564a"; else c = (x + y) % 2 ? "#3a4150" : "#424a5b"; tile(x, y, c); }
       const Nc = w2s(-0.5, -0.5), Lc = w2s(-0.5, FH - 0.5), Rc = w2s(FW - 0.5, -0.5);
       poly([Nc, Lc, up(Lc, wh), up(Nc, wh)], "#2a2f3d"); poly([Nc, Rc, up(Rc, wh), up(Nc, wh)], "#343b4d");
       const winCol = rgbStr(mix([24, 30, 46], hexRGB("bfe3ff"), sky.day)); // window shows the sky outside
       for (let g = 0.5; g < FH; g += 2) { const a = w2s(-0.5, g), b = w2s(-0.5, g + 0.9); poly([up(a, wh * 0.82), up(b, wh * 0.82), up(b, wh * 0.42), up(a, wh * 0.42)], winCol); ctx.fillStyle = "rgba(18,26,46,0.7)"; const sb = up(a, wh * 0.5); ctx.fillRect(sb[0] + 2 * z, sb[1] - 5 * z, 3 * z, 7 * z); }
       for (let g = 0.5; g < FW; g += 2) { const a = w2s(g, -0.5), b = w2s(g + 0.9, -0.5); poly([up(a, wh * 0.82), up(b, wh * 0.82), up(b, wh * 0.42), up(a, wh * 0.42)], winCol); ctx.fillStyle = "rgba(18,26,46,0.7)"; const sb = up(b, wh * 0.5); ctx.fillRect(sb[0] - 5 * z, sb[1] - 6 * z, 3 * z, 8 * z); }
+      drawBoards(); // whiteboards on the back wall
+      if (server) { ctx.save(); ctx.globalCompositeOperation = "lighter"; const c = w2s((server.x0 + server.x1) / 2, server.y0 + 1), rg = ctx.createRadialGradient(c[0], c[1], 2, c[0], c[1], 52 * z); rg.addColorStop(0, "rgba(60,120,210,0.12)"); rg.addColorStop(1, "rgba(60,120,210,0)"); ctx.fillStyle = rg; ctx.beginPath(); ctx.ellipse(c[0], c[1], 52 * z, 28 * z, 0, 0, 6.28); ctx.fill(); ctx.restore(); }
       ctx.save(); ctx.globalCompositeOperation = "lighter"; // soft ceiling lighting pools
       for (let x = 1.2; x < FW; x += 2.6) for (let y = ZONE - 1; y < FH; y += 2.6) { const c = w2s(x, y), R = 34 * z, rg = ctx.createRadialGradient(c[0], c[1], 2, c[0], c[1], R); rg.addColorStop(0, `rgba(255,250,235,${0.05 + 0.05 * sky.day})`); rg.addColorStop(1, "rgba(255,250,235,0)"); ctx.fillStyle = rg; ctx.beginPath(); ctx.ellipse(c[0], c[1], R, R * 0.5, 0, 0, 6.28); ctx.fill(); }
       ctx.restore();
@@ -8007,7 +8060,7 @@ function BuildingInterior({ building, onClose, onSelect }) {
       items.sort((a, b) => a.k - b.k);
       items.forEach(it => { if (it.f) drawFurn(it.f); else drawWorker(it.w, workers[hover] === it.w); });
       [office, meet].forEach(r => { if (!r) return; const midx = (r.x0 + r.x1) / 2, gh = 15 * z, seg = (x0, x1) => { const a = w2s(x0, r.y1 - 0.5), b = w2s(x1, r.y1 - 0.5); poly([a, b, up(b, gh), up(a, gh)], "rgba(150,190,235,0.16)"); ctx.strokeStyle = "rgba(200,225,255,0.5)"; ctx.lineWidth = 1.3; ctx.beginPath(); ctx.moveTo(up(a, gh)[0], up(a, gh)[1]); ctx.lineTo(up(b, gh)[0], up(b, gh)[1]); ctx.stroke(); }; seg(r.x0 - 0.5, midx - 0.6); seg(midx + 0.6, r.x1 - 0.5); }); // glass partitions
-      if (z > 0.5) { ctx.textAlign = "center"; ctx.font = `${6.5 * z}px 'DM Sans', sans-serif`; const plaque = (r, t) => { if (!r) return; const p = w2s((r.x0 + r.x1) / 2, r.y0 - 0.4), pw = ctx.measureText(t).width + 6 * z; ctx.fillStyle = "rgba(2,8,23,0.55)"; ctx.fillRect(p[0] - pw / 2, p[1] - 6 * z, pw, 9 * z); ctx.fillStyle = "#cfe0ff"; ctx.fillText(t, p[0], p[1] + 1 * z); }; plaque(office, "👔 " + (mgr ? mgr.first + "'s Office" : "Office")); plaque(meet, meeting.active ? "Meeting (live)" : "Meeting Room"); plaque(brk, "☕ Break Room"); plaque(lounge, "Lounge"); }
+      if (z > 0.5) { ctx.textAlign = "center"; ctx.font = `${6.5 * z}px 'DM Sans', sans-serif`; const plaque = (r, t) => { if (!r) return; const p = w2s((r.x0 + r.x1) / 2, r.y0 - 0.4), pw = ctx.measureText(t).width + 6 * z; ctx.fillStyle = "rgba(2,8,23,0.55)"; ctx.fillRect(p[0] - pw / 2, p[1] - 6 * z, pw, 9 * z); ctx.fillStyle = "#cfe0ff"; ctx.fillText(t, p[0], p[1] + 1 * z); }; plaque(office, "👔 " + (mgr ? mgr.first + "'s Office" : "Office")); plaque(meet, meeting.active ? "Meeting (live)" : "Meeting Room"); plaque(brk, "☕ Break Room"); plaque(lounge, "Lounge"); plaque(server, "🖥️ Server Room"); plaque(lab, "🔬 Lab"); plaque(priv, "Offices"); }
       // night: dim the room; monitors + coffee machine glow
       if (sky.night > 0.02) {
         ctx.save(); ctx.globalCompositeOperation = "multiply"; ctx.fillStyle = rgbStr(mix([255, 255, 255], [42, 50, 84], sky.night * 0.6)); ctx.fillRect(0, 0, W, H); ctx.restore();
@@ -8047,7 +8100,7 @@ function BuildingInterior({ building, onClose, onSelect }) {
       <div className="absolute top-3 right-3 z-10 px-3 py-1.5 rounded-md text-white" style={{ fontSize: 12, background: "rgba(2,8,23,0.6)", backdropFilter: "blur(4px)" }}>
         🏢 {building.name} <span style={{ opacity: 0.8, fontWeight: 400 }}>· {building.bu} · {(building.members || []).length} people</span>
       </div>
-      <div className="absolute bottom-3 left-3 z-10 px-3 py-1.5 rounded-md" style={{ fontSize: 11, background: "rgba(2,8,23,0.5)", color: "#dbe7ff" }}>a working floor: the boss has a glass office, people hold meetings, grab coffee (☕) & chat (💬) · gold tie = a lead · hover a person for their name · click to open their card · drag/scroll to look around</div>
+      <div className="absolute bottom-3 left-3 z-10 px-3 py-1.5 rounded-md" style={{ fontSize: 11, background: "rgba(2,8,23,0.5)", color: "#dbe7ff" }}>a working floor — engineering teams get a server room (🖥️) & lab (🔬) with whiteboards; other teams get offices & lounges. People hold meetings, grab coffee (☕), tinker (🔧) & chat (💬) · gold tie = a lead · hover a person for their name · click their card · drag/scroll to look</div>
     </div>
   );
 }
