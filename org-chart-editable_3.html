@@ -8156,6 +8156,7 @@ function CityOrgView() {
     const drops = []; for (let i = 0; i < 260; i++) drops.push({ x: Math.random(), y: Math.random(), spd: 0.8 + Math.random() * 0.7 });
     const flakes = []; for (let i = 0; i < 180; i++) flakes.push({ x: Math.random(), y: Math.random(), spd: 0.15 + Math.random() * 0.25, drift: Math.random() * 6.28, rot: Math.random() * 6.28 });
     let flash = 0, boltTimer = 3, mmGeom = null, curSeason = null;
+    const fireworks = []; let fwTimer = 3;
 
     function centerOn(gx, gy) { cam.ox = W / 2 - ((gx - gy) * TW / 2) * cam.zoom; cam.oy = H / 2 - ((gx + gy) * TH / 2) * cam.zoom; }
     function drawPed(p) { const s = w2s(p.gx, p.gy), z = cam.zoom, st = Math.sin(clock * 8 + p.pos) * 0.7 * z; ctx.fillStyle = "rgba(15,18,24,0.45)"; ctx.beginPath(); ctx.ellipse(s[0], s[1], 2 * z, 1 * z, 0, 0, 6.28); ctx.fill(); ctx.fillStyle = p.color; ctx.fillRect(s[0] - 1.1 * z, s[1] - 5.2 * z + st, 2.2 * z, 3.2 * z); ctx.fillStyle = "#1c2230"; ctx.fillRect(s[0] - 1.1 * z, s[1] - 2.2 * z + st, 2.2 * z, 2.2 * z); ctx.fillStyle = "#e2b48c"; ctx.beginPath(); ctx.arc(s[0], s[1] - 6.3 * z + st, 1.4 * z, 0, 6.28); ctx.fill(); }
@@ -8217,6 +8218,24 @@ function CityOrgView() {
       ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = 1.5; ctx.strokeRect(v0[0], v0[1], v1[0] - v0[0], v1[1] - v0[1]);
       ctx.fillStyle = "rgba(255,255,255,0.5)"; ctx.font = "9px 'DM Sans', sans-serif"; ctx.textAlign = "left"; ctx.fillText("map · click to jump", mx + 6, my - 4);
       mmGeom = { mx, my, mw, mh, pad, sc };
+    }
+    function spawnFirework() {
+      const tx = stadium ? w2s(stadium.gx, stadium.gy)[0] : W * (0.3 + Math.random() * 0.4);
+      fireworks.push({ x: tx + (Math.random() * 60 - 30), y: H, ty: H * (0.16 + Math.random() * 0.22), state: "rise", color: `hsl(${Math.floor(Math.random() * 360)},90%,62%)`, parts: [] });
+    }
+    function updateFireworks(dt) {
+      for (let i = fireworks.length - 1; i >= 0; i--) {
+        const fw = fireworks[i];
+        if (fw.state === "rise") {
+          fw.y -= 300 * dt;
+          ctx.fillStyle = "rgba(255,240,200,0.85)"; ctx.beginPath(); ctx.arc(fw.x, fw.y, 1.8, 0, 6.28); ctx.fill();
+          if (fw.y <= fw.ty) { fw.state = "burst"; for (let k = 0; k < 42; k++) { const a = Math.random() * 6.28, sp = 40 + Math.random() * 95; fw.parts.push({ x: fw.x, y: fw.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1 }); } }
+        } else {
+          let alive = false; ctx.save(); ctx.globalCompositeOperation = "lighter";
+          fw.parts.forEach(p => { if (p.life <= 0) return; alive = true; p.life -= dt * 0.7; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 52 * dt; ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = fw.color; ctx.beginPath(); ctx.arc(p.x, p.y, 2.2, 0, 6.28); ctx.fill(); });
+          ctx.restore(); if (!alive) fireworks.splice(i, 1);
+        }
+      }
     }
 
     function frame(now) {
@@ -8315,6 +8334,8 @@ function CityOrgView() {
           else { ctx.save(); ctx.translate(xx, yy); ctx.rotate(fk.rot + clock * 2.5 + i); ctx.fillStyle = i % 2 ? "#d98a3a" : "#bf5a2c"; ctx.fillRect(-2, -1.4, 4, 2.8); ctx.restore(); }
         }
       }
+      if (sky.night > 0.5) { fwTimer -= dt; if (fwTimer <= 0) { spawnFirework(); fwTimer = 2.2 + Math.random() * 4; } }
+      if (fireworks.length) updateFireworks(dt);
       drawMinimap();
       drawClock(tod, sky, season);
       if (activity > 0.88) { ctx.fillStyle = "rgba(234,88,12,0.92)"; ctx.fillRect(W - 124, 56, 112, 16); ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = "bold 10px 'DM Sans', sans-serif"; ctx.fillText("🚗 RUSH HOUR", W - 68, 67); }
