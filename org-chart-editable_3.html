@@ -8137,6 +8137,14 @@ function CityOrgView() {
     const peds = [];
     for (let c = 0; c <= layout.cols; c++) for (const side of [-0.6, 0.6]) peds.push({ axis: "v", fixed: c * (layout.DSIZE + layout.GAP) + layout.GAP / 2 + side, pos: Math.random() * span, dir: Math.random() < 0.5 ? 1 : -1, spd: 0.4 + Math.random() * 0.4, color: PED_COLORS[(c + (side > 0 ? 1 : 0)) % PED_COLORS.length], gx: 0, gy: 0 });
     for (let r = 0; r <= layout.rows; r++) for (const side of [-0.6, 0.6]) peds.push({ axis: "h", fixed: r * (layout.DSIZE + layout.GAP) + layout.GAP / 2 + side, pos: Math.random() * span, dir: Math.random() < 0.5 ? 1 : -1, spd: 0.4 + Math.random() * 0.4, color: PED_COLORS[(r + (side > 0 ? 2 : 3)) % PED_COLORS.length], gx: 0, gy: 0 });
+    // a river runs down one street column, with bridges where roads cross it
+    const hasRiver = layout.cols >= 2, riverCol = Math.floor(layout.cols / 2);
+    const riverX = riverCol * (layout.DSIZE + layout.GAP) + layout.GAP / 2, riverW = layout.GAP / 2 * 0.92;
+    const bridges = []; for (let r = 0; r <= layout.rows; r++) bridges.push(r * (layout.DSIZE + layout.GAP) + layout.GAP / 2);
+    const boats = []; if (hasRiver) for (let i = 0; i < 3; i++) boats.push({ pos: Math.random() * layout.extentY, dir: Math.random() < 0.5 ? 1 : -1, spd: 0.5 + Math.random() * 0.4, color: ["#e2574c", "#f5b301", "#e7e7ea"][i % 3] });
+    if (hasRiver) { const onRiver = o => o.axis === "v" && Math.abs(o.fixed - riverX) < 1.1; for (let i = cars.length - 1; i >= 0; i--) if (onRiver(cars[i])) cars.splice(i, 1); for (let i = peds.length - 1; i >= 0; i--) if (onRiver(peds[i])) peds.splice(i, 1); }
+    cars.forEach(c => c.act = Math.random() * 0.9); peds.forEach(p => p.act = Math.random() * 0.9); // rush-hour spawn thresholds
+
     // landmarks at street intersections: one stadium, one park, the rest fountains
     const inter = [];
     for (let c = 1; c < layout.cols; c++) for (let r = 1; r < layout.rows; r++) inter.push({ gx: c * (layout.DSIZE + layout.GAP) + layout.GAP / 2, gy: r * (layout.DSIZE + layout.GAP) + layout.GAP / 2 });
@@ -8174,6 +8182,22 @@ function CityOrgView() {
       poly([w2s(pk.gx - 0.5, pk.gy - 0.5), w2s(pk.gx + 0.55, pk.gy - 0.2), w2s(pk.gx + 0.3, pk.gy + 0.5), w2s(pk.gx - 0.45, pk.gy + 0.25)], "#4a90c2");
       [[-0.6, -0.6], [0.65, -0.5], [0.6, 0.6], [-0.55, 0.6], [0, -0.72]].forEach(([dx, dy]) => drawTree({ gx: pk.gx + dx, gy: pk.gy + dy }, clock));
     }
+    function drawRiver() {
+      poly([w2s(riverX - riverW, 0), w2s(riverX + riverW, 0), w2s(riverX + riverW, layout.extentY), w2s(riverX - riverW, layout.extentY)], "#3f86bf");
+      ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1; const off = (clock * 0.6) % 1.4;
+      for (let y = -1.4; y < layout.extentY; y += 1.4) { const a = w2s(riverX - riverW * 0.7, y + off), b = w2s(riverX + riverW * 0.7, y + off); ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke(); }
+    }
+    function drawBridge(by) {
+      poly([w2s(riverX - riverW - 0.4, by - 0.85), w2s(riverX + riverW + 0.4, by - 0.85), w2s(riverX + riverW + 0.4, by + 0.85), w2s(riverX - riverW - 0.4, by + 0.85)], "#9a8b73");
+      const a = w2s(riverX - riverW - 0.4, by - 0.85), b = w2s(riverX + riverW + 0.4, by - 0.85), c = w2s(riverX + riverW + 0.4, by + 0.85), d = w2s(riverX - riverW - 0.4, by + 0.85);
+      ctx.strokeStyle = "#6b5d49"; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.moveTo(d[0], d[1]); ctx.lineTo(c[0], c[1]); ctx.stroke();
+    }
+    function drawBoat(bt) {
+      const s = w2s(riverX, bt.pos), z = cam.zoom;
+      ctx.fillStyle = "rgba(255,255,255,0.22)"; ctx.beginPath(); ctx.ellipse(s[0], s[1] + 2 * z, 7 * z, 2.2 * z, 0, 0, 6.28); ctx.fill();
+      ctx.fillStyle = "#6b4f33"; ctx.beginPath(); ctx.ellipse(s[0], s[1], 5 * z, 2.6 * z, 0, 0, 6.28); ctx.fill();
+      ctx.fillStyle = bt.color; ctx.fillRect(s[0] - 1.4 * z, s[1] - 7 * z, 2.8 * z, 6 * z);
+    }
     function drawBalloon() {
       const bx = balloon.x, by = balloon.y + Math.sin(balloon.ph) * 5;
       ctx.fillStyle = "#e2574c"; ctx.beginPath(); ctx.ellipse(bx, by, 15, 18, 0, 0, 6.28); ctx.fill();
@@ -8200,6 +8224,7 @@ function CityOrgView() {
       const tod = timeOfDay(), sky = skyState(tod), ang = sky.ang;
       const rain = Math.max(0, Math.min(1, (Math.sin(Date.now() / 1000 * 0.045) - 0.42) / 0.5)); // slow weather cycle
       const season = seasonState(Date.now() / 1000); curSeason = season;
+      const hour = tod * 24, activity = Math.min(1, 0.18 + 0.5 * sky.day + 0.45 * Math.exp(-Math.pow(hour - 8.5, 2) / 3) + 0.45 * Math.exp(-Math.pow(hour - 17.5, 2) / 3));
       const grad = ctx.createLinearGradient(0, 0, 0, H); grad.addColorStop(0, sky.top); grad.addColorStop(1, sky.bot); ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
       if (rain > 0.02) { ctx.fillStyle = `rgba(70,80,96,${rain * 0.55})`; ctx.fillRect(0, 0, W, H); } // storm overcast
       const sunx = (0.5 - 0.46 * Math.cos(ang)) * W, suny = (0.62 - 0.5 * Math.sin(ang)) * H;
@@ -8210,13 +8235,16 @@ function CityOrgView() {
       for (let i = 0; i < 5; i++) { const cx = ((clock * (7 + i * 2) + i * 260) % (W + 240)) - 120, cy = 36 + i * 30; cloud(cx, cy, 16 + i * 4, 0.5 * sky.day + 0.06 + rain * 0.5); }
       plate(0, 0, span, season.snow > 0.5 ? "#d2dadf" : "#8f9385"); // road base (snowy in winter)
       layout.plates.forEach(p => plate(p.gx, p.gy, p.size, season.grass)); // seasonal grass
+      if (hasRiver) { drawRiver(); bridges.forEach(drawBridge); }
       const move = o => { o.pos += o.dir * o.spd * dt; if (o.pos > span) o.pos = 0; else if (o.pos < 0) o.pos = span; o.gx = o.axis === "v" ? o.fixed : o.pos; o.gy = o.axis === "v" ? o.pos : o.fixed; };
       cars.forEach(move); peds.forEach(move);
+      boats.forEach(bt => { bt.pos += bt.dir * bt.spd * dt; if (bt.pos > layout.extentY) bt.pos = 0; else if (bt.pos < 0) bt.pos = layout.extentY; });
       const items = [];
       sorted.forEach(({ b, i }) => items.push({ d: b.gx + b.gy, kind: "b", b, i }));
       layout.trees.forEach(gt => items.push({ d: gt.gx + gt.gy, kind: "t", g: gt }));
-      cars.forEach(c => items.push({ d: c.gx + c.gy, kind: "c", c }));
-      peds.forEach(p => items.push({ d: p.gx + p.gy, kind: "p", p }));
+      cars.forEach(c => { if (activity > c.act) items.push({ d: c.gx + c.gy, kind: "c", c }); }); // rush-hour density
+      peds.forEach(p => { if (activity > p.act) items.push({ d: p.gx + p.gy, kind: "p", p }); });
+      boats.forEach(bt => items.push({ d: riverX + bt.pos, kind: "boat", bt }));
       fountains.forEach(f => items.push({ d: f.gx + f.gy, kind: "f", f }));
       if (stadium) items.push({ d: stadium.gx + stadium.gy - 0.5, kind: "S", s: stadium });
       if (park) items.push({ d: park.gx + park.gy - 0.5, kind: "K", p: park });
@@ -8233,6 +8261,7 @@ function CityOrgView() {
         else if (it.kind === "f") drawFountain(it.f);
         else if (it.kind === "S") drawStadium(it.s);
         else if (it.kind === "K") drawPark(it.p);
+        else if (it.kind === "boat") drawBoat(it.bt);
         else drawCar(it.c);
       });
       // night: darken everything (multiply), then paint warm lights on top
@@ -8288,6 +8317,7 @@ function CityOrgView() {
       }
       drawMinimap();
       drawClock(tod, sky, season);
+      if (activity > 0.88) { ctx.fillStyle = "rgba(234,88,12,0.92)"; ctx.fillRect(W - 124, 56, 112, 16); ctx.textAlign = "center"; ctx.fillStyle = "#fff"; ctx.font = "bold 10px 'DM Sans', sans-serif"; ctx.fillText("🚗 RUSH HOUR", W - 68, 67); }
       raf = requestAnimationFrame(frame);
     }
 
