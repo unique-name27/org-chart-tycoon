@@ -8292,6 +8292,7 @@ function CityOrgView() {
         sorted.forEach(({ b }) => { const cc = w2s(b.gx, b.gy), ht = b.h * cam.zoom, gy2 = cc[1] - ht * 0.5, R = b.foot * TW * 0.55 * cam.zoom + ht * 0.35, rg = ctx.createRadialGradient(cc[0], gy2, 1, cc[0], gy2, R); rg.addColorStop(0, `rgba(255,206,120,${0.45 * sky.night})`); rg.addColorStop(1, "rgba(255,206,120,0)"); ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(cc[0], gy2, R, 0, 6.28); ctx.fill(); });
         layout.lamps.forEach(L => { const s = w2s(L.gx, L.gy), cy2 = s[1] - 18 * cam.zoom, R = 40 * cam.zoom, rg = ctx.createRadialGradient(s[0], cy2, 1, s[0], cy2, R); rg.addColorStop(0, `rgba(255,224,150,${0.75 * sky.night})`); rg.addColorStop(1, "rgba(255,224,150,0)"); ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(s[0], cy2, R, 0, 6.28); ctx.fill(); });
         cars.forEach(c => { const s = w2s(c.gx, c.gy); ctx.fillStyle = `rgba(255,247,200,${0.7 * sky.night})`; ctx.beginPath(); ctx.arc(s[0], s[1] - 2 * cam.zoom, 2.6 * cam.zoom, 0, 6.28); ctx.fill(); });
+        if (hasRiver) for (let y = 1; y < layout.extentY; y += 2.4) { const p = w2s(riverX + Math.sin(clock + y) * 0.2, y); ctx.fillStyle = `rgba(255,214,140,${0.22 * sky.night})`; ctx.fillRect(p[0] - 1.2, p[1] - 7, 2.4, 14); } // shimmering reflections
         ctx.restore();
       }
       // ── signage: blue BU district banners + a department nameplate on every building ──
